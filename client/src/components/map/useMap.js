@@ -40,6 +40,7 @@ export default function useMap() {
     setMapRef(instance);
 
     function updateAoiFromViewport() {
+      if (useStore.getState().aoiMode !== 'auto') return;
       const bounds = instance.getBounds();
       const polygon = {
         type: 'Polygon',

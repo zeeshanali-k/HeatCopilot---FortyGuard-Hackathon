@@ -40,3 +40,7 @@
 .maplibregl-popup-tip {
   border-top-color: var(--glass-bg) !important;
 }
+
+.map-draw-crosshair .maplibregl-canvas {
+  cursor: crosshair !important;
+}

@@ -7,6 +7,8 @@
  */
 
 import useMap from './map/useMap';
+import useDrawArea from './map/useDrawArea';
+import AoiLayer from './map/AoiLayer';
 import HeatLayer from './map/HeatLayer';
 import DurationLayer from './map/DurationLayer';
 import HotspotMarkers from './map/HotspotMarkers';
@@ -17,6 +19,7 @@ import { useStore } from '../state';
 
 export default function MapView() {
   const { containerRef, map } = useMap();
+  useDrawArea(map);
 
   const hotspots = useStore((s) => s.hotspots);
   const heatTiles = useStore((s) => s.heatTiles);
@@ -32,6 +35,7 @@ export default function MapView() {
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
       {map && (
         <>
+          <AoiLayer map={map} />
           <HeatLayer map={map} heatTiles={heatTiles} />
           <DurationLayer
             map={map}
