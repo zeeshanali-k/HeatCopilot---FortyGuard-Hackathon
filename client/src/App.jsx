@@ -10,6 +10,7 @@ import SearchBox from './components/SearchBox';
 import FeaturePanel from './components/FeaturePanel';
 import ResultsPanel from './components/ResultsPanel';
 import ThemeToggle from './components/ThemeToggle';
+import CompareView from './components/CompareView';
 
 function App() {
   return (
@@ -27,6 +28,7 @@ function App() {
       <FeaturePanel />
       <ResultsPanel />
       <ThemeToggle />
+      <CompareView />
     </div>
   );
 }

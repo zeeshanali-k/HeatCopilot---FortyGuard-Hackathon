@@ -44,3 +44,26 @@
 .map-draw-crosshair .maplibregl-canvas {
   cursor: crosshair !important;
 }
+
+@keyframes historyFlash {
+  0% {
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes compareFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

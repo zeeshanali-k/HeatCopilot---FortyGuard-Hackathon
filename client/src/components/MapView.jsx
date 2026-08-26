@@ -15,6 +15,7 @@ import HotspotMarkers from './map/HotspotMarkers';
 import HotspotPopup from './map/HotspotPopup';
 import ZoneLayer from './map/ZoneLayer';
 import FundedZonesLayer from './map/FundedZonesLayer';
+import HistoryLayer from './map/HistoryLayer';
 import { useStore } from '../state';
 
 export default function MapView() {
@@ -56,6 +57,7 @@ export default function MapView() {
           />
           <ZoneLayer map={map} selectedZone={selectedZone} />
           <FundedZonesLayer map={map} fundedZones={allocation?.funded} />
+          <HistoryLayer map={map} />
         </>
       )}
     </div>

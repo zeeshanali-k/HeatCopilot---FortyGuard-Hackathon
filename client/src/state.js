@@ -6,8 +6,12 @@
  */
 
 import { create } from 'zustand';
+import { reverseGeocode } from './api';
 
 const STORAGE_KEY = 'fortyguard-theme';
+const HISTORY_STORAGE_KEY = 'heatcopilot:history:v1';
+const HISTORY_MAX_ENTRIES = 20;
+export const HISTORY_PALETTE = ['#4c9ffe', '#22c55e', '#f59e0b', '#a855f7'];
 const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
 const storedTheme = (() => {
   try {
@@ -55,6 +59,67 @@ function polygonBBoxAreaMi2(polygon) {
   const deg2 = (maxLon - minLon) * (maxLat - minLat);
   const km2PerDeg2 = 111 * 111 * Math.cos(centerLatRad);
   return deg2 * km2PerDeg2 * 0.386102;
+}
+
+function polygonCentroid(polygon) {
+  if (!polygon || polygon.type !== 'Polygon') return [0, 0];
+  const ring = polygon.coordinates[0];
+  let x = 0;
+  let y = 0;
+  for (const [lon, lat] of ring) {
+    x += lon;
+    y += lat;
+  }
+  return [x / ring.length, y / ring.length];
+}
+
+function polygonBBox(polygon) {
+  const ring = polygon.coordinates[0];
+  let minLon = Infinity;
+  let maxLon = -Infinity;
+  let minLat = Infinity;
+  let maxLat = -Infinity;
+  for (const [lon, lat] of ring) {
+    minLon = Math.min(minLon, lon);
+    maxLon = Math.max(maxLon, lon);
+    minLat = Math.min(minLat, lat);
+    maxLat = Math.max(maxLat, lat);
+  }
+  return { minLon, maxLon, minLat, maxLat };
+}
+
+function aoiHash(aoi) {
+  if (!aoi || aoi.type !== 'Polygon') return '';
+  return JSON.stringify(aoi.coordinates[0].map(([lon, lat]) => [Number(lon.toFixed(6)), Number(lat.toFixed(6))]));
+}
+
+function formatLatLonLabel(lat, lon) {
+  return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+}
+
+function stripRuntimeHistoryFields(entry) {
+  const { rerunStatus: _rerunStatus, rerunError: _rerunError, flashScores: _flashScores, ...rest } = entry;
+  return rest;
+}
+
+function persistHistory(history) {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history.map(stripRuntimeHistoryFields)));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function readHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+  } catch {
+    // ignore
+  }
+  return [];
 }
 
 function clearAnalysisResults() {
@@ -292,4 +357,130 @@ export const useStore = create((set, get) => ({
     actionPlanNarrative: '',
     actionPlanEvidencePdfUrl: null,
   }),
+
+  // History state
+  history: readHistory(),
+  selectedHistoryIds: [],
+  activeHistoryId: null,
+  saveToHistory: async ({ aoi, aoiMode, date, hotspots, duration, zones, fromCache }) => {
+    if (!aoi) return;
+    const [lon, lat] = polygonCentroid(aoi);
+    let label;
+    try {
+      label = await reverseGeocode(lat, lon);
+    } catch {
+      label = null;
+    }
+    if (!label) label = formatLatLonLabel(lat, lon);
+
+    const hash = aoiHash(aoi);
+    const createdAt = new Date().toISOString();
+    const state = get();
+    const existingIndex = state.history.findIndex((h) => aoiHash(h.aoi) === hash);
+
+    const entry = {
+      id: existingIndex >= 0 ? state.history[existingIndex].id : `run_${createdAt}`,
+      createdAt,
+      label,
+      aoi,
+      aoiMode: aoiMode || 'auto',
+      date: date || '2026-07-15',
+      hotspots: hotspots || [],
+      duration: duration || [],
+      zones: zones || [],
+      fromCache: !!fromCache,
+    };
+
+    let next;
+    if (existingIndex >= 0) {
+      next = [...state.history];
+      next[existingIndex] = entry;
+    } else {
+      next = [...state.history, entry];
+      if (next.length > HISTORY_MAX_ENTRIES) {
+        next = next.slice(next.length - HISTORY_MAX_ENTRIES);
+      }
+    }
+
+    persistHistory(next);
+    set({ history: next, activeHistoryId: entry.id });
+  },
+  loadHistoryEntry: (id) => {
+    const state = get();
+    const entry = state.history.find((h) => h.id === id);
+    if (!entry) return;
+    set({
+      aoi: entry.aoi,
+      aoiMode: entry.aoiMode,
+      hotspots: entry.hotspots,
+      heatTiles: null,
+      selectedHotspot: null,
+      durationZones: entry.duration,
+      durationTiles: null,
+      showDurationLayer: entry.duration.length > 0,
+      prioritizeZones: entry.zones,
+      selectedZone: null,
+      showResultsPanel: true,
+      activeHistoryId: id,
+      allocateStatus: 'idle',
+      allocateError: null,
+      allocation: null,
+      actionPlanStatus: 'idle',
+      actionPlanError: null,
+      actionPlanNarrative: '',
+      actionPlanEvidencePdfUrl: null,
+    });
+    if (state.mapRef) {
+      const box = polygonBBox(entry.aoi);
+      state.mapRef.fitBounds(
+        [
+          [box.minLon, box.minLat],
+          [box.maxLon, box.maxLat],
+        ],
+        { padding: 40, essential: true }
+      );
+    }
+  },
+  toggleHistorySelection: (id) =>
+    set((state) => {
+      const index = state.selectedHistoryIds.indexOf(id);
+      if (index >= 0) {
+        return { selectedHistoryIds: state.selectedHistoryIds.filter((i) => i !== id) };
+      }
+      if (state.selectedHistoryIds.length >= HISTORY_PALETTE.length) {
+        return state;
+      }
+      return { selectedHistoryIds: [...state.selectedHistoryIds, id] };
+    }),
+  clearHistorySelection: () => set({ selectedHistoryIds: [] }),
+  deleteHistoryEntry: (id) =>
+    set((state) => {
+      const next = state.history.filter((h) => h.id !== id);
+      persistHistory(next);
+      return {
+        history: next,
+        selectedHistoryIds: state.selectedHistoryIds.filter((i) => i !== id),
+        activeHistoryId: state.activeHistoryId === id ? null : state.activeHistoryId,
+      };
+    }),
+  clearHistory: () => {
+    persistHistory([]);
+    set({ history: [], selectedHistoryIds: [], activeHistoryId: null });
+  },
+  setHistoryEntryRerun: (id, { status, error = null }) =>
+    set((state) => ({
+      history: state.history.map((h) =>
+        h.id === id ? { ...h, rerunStatus: status, rerunError: error || undefined } : h
+      ),
+    })),
+  clearHistoryRerun: (id) =>
+    set((state) => ({
+      history: state.history.map((h) =>
+        h.id === id ? { ...h, rerunStatus: undefined, rerunError: undefined } : h
+      ),
+    })),
+  flashHistoryScores: (id) =>
+    set((state) => ({
+      history: state.history.map((h) => (h.id === id ? { ...h, flashScores: Date.now() } : h)),
+    })),
 }));
