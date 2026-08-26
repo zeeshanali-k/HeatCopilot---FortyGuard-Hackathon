@@ -71,6 +71,9 @@ export const useStore = create((set) => ({
     prioritizeZones: [],
     selectedZone: null,
     showResultsPanel: false,
+    allocateStatus: 'idle',
+    allocateError: null,
+    allocation: null,
     actionPlanStatus: 'idle',
     actionPlanError: null,
     actionPlanNarrative: '',
@@ -116,10 +119,26 @@ export const useStore = create((set) => ({
     prioritizeZones: [],
     selectedZone: null,
     showResultsPanel: false,
+    allocateStatus: 'idle',
+    allocateError: null,
+    allocation: null,
     actionPlanStatus: 'idle',
     actionPlanError: null,
     actionPlanNarrative: '',
     actionPlanEvidencePdfUrl: null,
+  }),
+
+  // Budget Optimizer state
+  allocateStatus: 'idle', // idle | processing | completed | error
+  allocateError: null,
+  allocation: null, // { funded, unfunded, totalSpent, budgetUsd, impact }
+  setAllocateStatus: (allocateStatus) => set({ allocateStatus }),
+  setAllocateError: (allocateError) => set({ allocateError }),
+  setAllocation: (allocation) => set({ allocation }),
+  resetAllocate: () => set({
+    allocateStatus: 'idle',
+    allocateError: null,
+    allocation: null,
   }),
 
   // Action Plan state

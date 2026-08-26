@@ -127,6 +127,36 @@ Response `200`:
 
 ---
 
+## POST /api/allocate
+
+Budget optimizer. Reuses the `/api/prioritize` pipeline server-side, then greedily funds zones in priority order until the budget is exhausted. Unit costs are rough municipal estimates (see `server/src/costs.js`). No new external API calls.
+
+Request:
+
+```json
+{ "aoi": { "type": "Polygon", "coordinates": [[]] }, "date": "2026-07-15", "budgetUsd": 2000000 }
+```
+
+Response `200`:
+
+```json
+{
+  "funded": [
+    { "id": "z_1", "intervention": "shade_structures", "cost": 45000, "runningTotal": 45000, "...": "same zone shape as /api/prioritize" }
+  ],
+  "unfunded": [
+    { "id": "z_2", "intervention": "green_space", "cost": 300000, "...": "next in line when more budget is available" }
+  ],
+  "totalSpent": 1965000,
+  "budgetUsd": 2000000,
+  "impact": { "zonesFunded": 21, "dangerHoursAddressed": 136.8 }
+}
+```
+
+Errors: `422 invalid_budget` when `budgetUsd` is not a non-negative finite number; `422 invalid_aoi` as usual.
+
+---
+
 ## POST /api/action-plan
 
 LLM narrative for one zone. Deterministic inputs — the LLM only writes prose from the supplied data.
