@@ -1,0 +1,117 @@
+/**
+ * Theme variables
+ *
+ * CSS custom properties for dark/light modes plus reusable glassmorphism
+ * tokens. The data-theme attribute on <html> selects the active palette.
+ */
+
+:root {
+  /* Accent palette */
+  --accent: #4c9ffe;
+  --accent-rgb: 76, 159, 254;
+  --accent-hover: #3b8ee8;
+  --accent-bg: rgba(var(--accent-rgb), 0.12);
+  --accent-bg-strong: rgba(var(--accent-rgb), 0.2);
+
+  /* Semantic colors */
+  --danger: #e5484d;
+  --danger-bg: rgba(229, 72, 77, 0.12);
+  --success: #30a46c;
+
+  /* Light mode defaults */
+  --bg: #f4f6f9;
+  --bg-rgb: 244, 246, 249;
+  --surface: #ffffff;
+  --surface-rgb: 255, 255, 255;
+  --text-h: #111318;
+  --text-m: #4a4f5a;
+  --text-l: #7a8190;
+  --border: rgba(17, 19, 24, 0.08);
+  --border-strong: rgba(17, 19, 24, 0.14);
+
+  /* Glassmorphism tokens */
+  --glass-bg: rgba(var(--surface-rgb), 0.72);
+  --glass-bg-hover: rgba(var(--surface-rgb), 0.88);
+  --glass-border: rgba(17, 19, 24, 0.1);
+  --glass-shadow: 0 8px 32px rgba(17, 19, 24, 0.1);
+
+  /* Shadows */
+  --shadow-sm: 0 2px 8px rgba(17, 19, 24, 0.08);
+  --shadow: 0 8px 24px rgba(17, 19, 24, 0.12);
+
+  /* Track / bar colors */
+  --track-bg: rgba(17, 19, 24, 0.08);
+  --input-bg: rgba(var(--surface-rgb), 0.9);
+}
+
+[data-theme='dark'] {
+  --bg: #0b0d12;
+  --bg-rgb: 11, 13, 18;
+  --surface: #16181d;
+  --surface-rgb: 22, 24, 29;
+  --text-h: #e6e9ef;
+  --text-m: #c2c8d2;
+  --text-l: #9aa3b2;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  --glass-bg: rgba(var(--surface-rgb), 0.72);
+  --glass-bg-hover: rgba(var(--surface-rgb), 0.88);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.25);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+
+  --track-bg: #2d313a;
+  --input-bg: #0b0d12;
+}
+
+/* Base page styles */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+html {
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+body {
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Scrollbars with glassy tint */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-l);
+}
