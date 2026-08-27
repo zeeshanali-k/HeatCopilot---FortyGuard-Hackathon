@@ -23,19 +23,26 @@ const storedTheme = (() => {
 const initialTheme = storedTheme === 'light' || storedTheme === 'dark' ? storedTheme : prefersDark ? 'dark' : 'light';
 
 const AOI_AREA_CAP_MI2 = 50;
+const VIEWPORT_INSET_RATIO = 0.15;
 
 function aoiFromMap(map) {
   if (!map) return null;
   const bounds = map.getBounds();
+  const west = bounds.getWest();
+  const east = bounds.getEast();
+  const south = bounds.getSouth();
+  const north = bounds.getNorth();
+  const dx = (east - west) * VIEWPORT_INSET_RATIO;
+  const dy = (north - south) * VIEWPORT_INSET_RATIO;
   return {
     type: 'Polygon',
     coordinates: [
       [
-        [bounds.getWest(), bounds.getSouth()],
-        [bounds.getEast(), bounds.getSouth()],
-        [bounds.getEast(), bounds.getNorth()],
-        [bounds.getWest(), bounds.getNorth()],
-        [bounds.getWest(), bounds.getSouth()],
+        [west + dx, south + dy],
+        [east - dx, south + dy],
+        [east - dx, north - dy],
+        [west + dx, north - dy],
+        [west + dx, south + dy],
       ],
     ],
   };
@@ -170,7 +177,6 @@ export const useStore = create((set, get) => ({
   aoi: null,
   aoiMode: 'auto',
   draftVertices: [],
-  draftCursor: null,
   drawing: false,
   drawError: null,
   setMapRef: (mapRef) => set({ mapRef }),
@@ -191,6 +197,8 @@ export const useStore = create((set, get) => ({
     }),
   startDrawing: () =>
     set({
+      aoiMode: 'manual',
+      aoi: null,
       drawing: true,
       draftVertices: [],
       drawError: null,
@@ -201,7 +209,6 @@ export const useStore = create((set, get) => ({
       draftVertices: [...state.draftVertices, pt],
       drawError: null,
     })),
-  setDraftCursor: (draftCursor) => set({ draftCursor }),
   closeDraft: () => {
     const state = get();
     if (state.draftVertices.length < 3) {
@@ -227,7 +234,14 @@ export const useStore = create((set, get) => ({
     });
     return true;
   },
-  cancelDrawing: () => set({ drawing: false, draftVertices: [], drawError: null }),
+  cancelDrawing: () =>
+    set((state) => ({
+      aoiMode: 'auto',
+      aoi: aoiFromMap(state.mapRef),
+      drawing: false,
+      draftVertices: [],
+      drawError: null,
+    })),
   clearCustomArea: () =>
     set((state) => ({
       aoiMode: 'auto',
@@ -238,6 +252,14 @@ export const useStore = create((set, get) => ({
       ...clearAnalysisResults(),
     })),
   setDrawError: (drawError) => set({ drawError }),
+  updateAoiVertex: (index, [lon, lat]) =>
+    set((state) => {
+      if (!state.aoi || state.aoi.type !== 'Polygon') return {};
+      const ring = state.aoi.coordinates[0].map((pt, i) => (i === index ? [lon, lat] : pt));
+      if (index === 0) ring[ring.length - 1] = [lon, lat];
+      if (index === ring.length - 1) ring[0] = [lon, lat];
+      return { aoi: { ...state.aoi, coordinates: [ring] } };
+    }),
 
   // Search state
   searchResults: [],

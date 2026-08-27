@@ -20,6 +20,7 @@ const BASEMAP_STYLES = {
   dark: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
   light: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
 };
+const VIEWPORT_INSET_RATIO = 0.15;
 
 export default function useMap() {
   const containerRef = useRef(null);
@@ -42,15 +43,21 @@ export default function useMap() {
     function updateAoiFromViewport() {
       if (useStore.getState().aoiMode !== 'auto') return;
       const bounds = instance.getBounds();
+      const west = bounds.getWest();
+      const east = bounds.getEast();
+      const south = bounds.getSouth();
+      const north = bounds.getNorth();
+      const dx = (east - west) * VIEWPORT_INSET_RATIO;
+      const dy = (north - south) * VIEWPORT_INSET_RATIO;
       const polygon = {
         type: 'Polygon',
         coordinates: [
           [
-            [bounds.getWest(), bounds.getSouth()],
-            [bounds.getEast(), bounds.getSouth()],
-            [bounds.getEast(), bounds.getNorth()],
-            [bounds.getWest(), bounds.getNorth()],
-            [bounds.getWest(), bounds.getSouth()],
+            [west + dx, south + dy],
+            [east - dx, south + dy],
+            [east - dx, north - dy],
+            [west + dx, north - dy],
+            [west + dx, south + dy],
           ],
         ],
       };
