@@ -89,22 +89,28 @@ export default function AoiLayer({ map }) {
   const updateAoiVertex = useStore((s) => s.updateAoiVertex);
   const markersRef = useRef([]);
   const draggingRef = useRef(false);
+  const aoiRef = useRef(aoi);
 
-  // Render/update AOI sources and layers.
+  // Keep aoiRef synced with the store. During a vertex drag the drag handler
+  // owns the ref, so only sync when the store value changes (never mid-drag).
+  useEffect(() => {
+    aoiRef.current = aoi;
+  }, [aoi]);
+
+  // Render/update AOI sources and layers. Reads the AOI through aoiRef so that
+  // mid-drag polygon updates (which live only in the ref/source) are never
+  // overwritten by a stale store value if this effect fires during a drag.
   useEffect(() => {
     if (!map) return;
 
-    const aoiData = toFeatureCollection(aoi);
-    const vertexData = verticesFromPolygon(aoi);
-    const labelData = labelPointFromPolygon(aoi);
+    const currentAoi = aoiRef.current;
+    const aoiData = toFeatureCollection(currentAoi);
+    const vertexData = verticesFromPolygon(currentAoi);
+    const labelData = labelPointFromPolygon(currentAoi);
 
     const aoiExists = map.getSource('aoi-source');
     if (aoiExists) {
-      // While a vertex is being dragged, the drag handler owns the polygon source
-      // so the React effect must not snap it back to the stale store AOI.
-      if (!draggingRef.current) {
-        map.getSource('aoi-source').setData(aoiData);
-      }
+      map.getSource('aoi-source').setData(aoiData);
       map.getSource('aoi-vertices').setData(vertexData);
       map.getSource('aoi-label').setData(labelData);
 
@@ -197,18 +203,22 @@ export default function AoiLayer({ map }) {
   useEffect(() => {
     if (!map) return;
 
-    if (aoiMode !== 'manual' || !aoi || aoi.type !== 'Polygon') {
+    const currentAoi = aoiRef.current;
+    if (aoiMode !== 'manual' || !currentAoi || currentAoi.type !== 'Polygon') {
       markersRef.current.forEach((m) => m.remove());
       markersRef.current = [];
       return;
     }
 
-    const ring = aoi.coordinates[0];
+    const ring = currentAoi.coordinates[0];
     // Exclude the closing duplicate vertex.
     const editableCount = ring.length - 1;
 
     if (markersRef.current.length === editableCount) {
-      markersRef.current.forEach((marker, i) => marker.setLngLat(ring[i]));
+      // Skip while a marker is being dragged — the marker owns its position.
+      if (!draggingRef.current) {
+        markersRef.current.forEach((marker, i) => marker.setLngLat(ring[i]));
+      }
       return;
     }
 
@@ -230,8 +240,12 @@ export default function AoiLayer({ map }) {
       });
 
       marker.on('drag', () => {
+        const baseAoi = aoiRef.current;
+        if (!baseAoi || baseAoi.type !== 'Polygon') return;
         const { lng, lat: newLat } = marker.getLngLat();
-        const updated = polygonWithMovedVertex(aoi, i, [lng, newLat]);
+        const updated = polygonWithMovedVertex(baseAoi, i, [lng, newLat]);
+        // Keep the ref in sync so any effect firing mid-drag sees the live polygon.
+        aoiRef.current = updated;
         const aoiSource = map.getSource('aoi-source');
         if (aoiSource) aoiSource.setData(toFeatureCollection(updated));
       });
