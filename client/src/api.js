@@ -53,8 +53,8 @@ export async function allocateBudget(aoi, { date, budgetUsd } = {}) {
   });
 }
 
-export async function generateActionPlan(zoneId, zoneData) {
-  return post('/api/action-plan', { zoneId, zoneData });
+export async function generateActionPlan(zoneId, zoneData, context) {
+  return post('/api/action-plan', { zoneId, zoneData, context });
 }
 
 export async function searchNominatim(query) {

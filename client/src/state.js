@@ -241,7 +241,10 @@ export const useStore = create((set, get) => ({
 
   // Search state
   searchResults: [],
+  areaLabel: null,
+  analysisDate: '2026-07-15',
   setSearchResults: (searchResults) => set({ searchResults }),
+  setAreaLabel: (areaLabel) => set({ areaLabel }),
 
   // Analysis state
   analysisStatus: 'idle', // idle | submitted | processing | completed | error

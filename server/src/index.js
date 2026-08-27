@@ -814,7 +814,7 @@ app.post('/api/allocate', async (req, res, next) => {
 
 app.post('/api/action-plan', async (req, res, next) => {
   try {
-    const { zoneId, zoneData } = req.body;
+    const { zoneId, zoneData, context } = req.body;
     if (!zoneId || !zoneData) {
       const err = new Error('Request must include zoneId and zoneData');
       err.code = 'invalid_request';
@@ -822,7 +822,7 @@ app.post('/api/action-plan', async (req, res, next) => {
       throw err;
     }
 
-    const plan = await generateActionPlan({ zoneId, zoneData });
+    const plan = await generateActionPlan({ zoneId, zoneData, context });
     res.json(plan);
   } catch (err) {
     next(err);

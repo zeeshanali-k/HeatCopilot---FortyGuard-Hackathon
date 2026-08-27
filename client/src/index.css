@@ -67,3 +67,19 @@
     transform: translateY(0);
   }
 }
+
+@keyframes narrativeBlockFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.narrative-block {
+  opacity: 0;
+  animation: narrativeBlockFadeIn 0.35s var(--ease-out) forwards;
+}

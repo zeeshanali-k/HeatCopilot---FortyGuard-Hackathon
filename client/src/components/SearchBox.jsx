@@ -17,6 +17,7 @@ export default function SearchBox() {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef(null);
   const mapRef = useStore((s) => s.mapRef);
+  const setAreaLabel = useStore((s) => s.setAreaLabel);
 
   const handleSearch = useCallback(async (raw) => {
     const q = raw.trim();
@@ -59,6 +60,7 @@ export default function SearchBox() {
       mapRef.flyTo({ center: [lon, lat], zoom: 13, essential: true });
     }
     setQuery(place.display_name);
+    setAreaLabel(place.display_name?.split(',')[0] || place.display_name);
     setOpen(false);
   }
 
