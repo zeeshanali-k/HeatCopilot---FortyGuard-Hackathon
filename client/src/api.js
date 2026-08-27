@@ -45,6 +45,14 @@ export async function prioritizeZones(aoi, { date } = {}) {
   });
 }
 
+export async function allocateBudget(aoi, { date, budgetUsd } = {}) {
+  return post('/api/allocate', {
+    aoi,
+    date: date || '2026-07-15',
+    budgetUsd,
+  });
+}
+
 export async function generateActionPlan(zoneId, zoneData) {
   return post('/api/action-plan', { zoneId, zoneData });
 }

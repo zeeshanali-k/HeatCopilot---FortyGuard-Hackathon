@@ -25,15 +25,15 @@ const INTERVENTION_COSTS = {
 
 ## Backend tasks
 
-- [ ] `POST /api/allocate` route: `{ aoi, date, budgetUsd }` → `{ funded: [...], unfunded: [...], totalSpent, budgetUsd }`
-- [ ] `allocate.js`: greedy selection (pure function) + unit test
-- [ ] Cost table in one config module with sources noted as estimates
+- [x] `POST /api/allocate` route: `{ aoi, date, budgetUsd }` → `{ funded: [...], unfunded: [...], totalSpent, budgetUsd }`
+- [x] `allocate.js`: greedy selection (pure function) + unit test
+- [x] Cost table in one config module with sources noted as estimates
 
 ## Frontend tasks
 
-- [ ] Budget input + "Optimize" button in ResultsPanel
-- [ ] Funded zones get a "FUNDED" chip in the list and green outline on map; unfunded stay grey
-- [ ] Summary bar: "$1.98M of $2M allocated · 7 zones funded · 41,200 danger-hours addressed"
+- [x] Budget input + "Optimize" button in ResultsPanel
+- [x] Funded zones get a "FUNDED" chip in the list and green outline on map; unfunded stay grey
+- [x] Summary bar: "$1.98M of $2M allocated · 7 zones funded · 41,200 danger-hours addressed"
 
 ## Acceptance criteria
 

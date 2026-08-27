@@ -12,6 +12,7 @@ import { isDemoMode, loadOrFail } from './cache.js';
 import { submitAndPoll } from './fortyguard.js';
 import { computePriorityScore } from './scoring.js';
 import { recommendIntervention } from './interventions.js';
+import { allocateBudget } from './allocate.js';
 import { fetchOsmAssets, countAssetsInZone } from './osm.js';
 import { generateActionPlan } from './llm.js';
 import { logger } from './logger.js';
@@ -656,123 +657,156 @@ app.post('/api/duration', async (req, res, next) => {
   }
 });
 
+async function computePrioritizedZones(aoi, date) {
+  const ring = aoi.coordinates[0];
+  const lons = ring.map((p) => p[0]);
+  const lats = ring.map((p) => p[1]);
+  logger.info('computePrioritizedZones request', {
+    date,
+    aoiBbox: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
+  });
+
+  // 1. Grid AOI into ~500 m cells.
+  const gridZones = buildZoneGrid(aoi, 500);
+  if (gridZones.length === 0) {
+    return { zones: [], meta: { zoneCount: 0, fromCache: true, greenerySource: 'osm_landuse' } };
+  }
+
+  // 2. Fetch heat (tcm) + duration (persistence) tiles.
+  const hour = '14:00';
+  const tcmPayload = { aoi, date, hour, mode: 'tcm', granularity: 100 };
+  let tcmResult;
+  const tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
+  if (tcmCached) {
+    tcmResult = tcmCached.data;
+  } else {
+    const upstream = await submitAndPoll('/v1/heatmap', tcmPayload, { mode: 'tcm', granularity: 100 });
+    tcmResult = upstream.result;
+  }
+  const heatTiles = normalizeHotspotTiles(tcmResult);
+
+  let durationCtx;
+  try {
+    durationCtx = await fetchDurationContext(aoi, date, 38);
+  } catch (err) {
+    if (err.code !== 'cache_miss') throw err;
+  }
+
+  const hasCompanionData =
+    durationCtx &&
+    durationCtx.persistenceTiles?.features?.length > 0;
+
+  const durationTiles = hasCompanionData
+    ? durationCtx.persistenceTiles
+    : deriveFallbackDuration(heatTiles, 38);
+
+  // 3. Aggregate tiles into zones.
+  let zones = aggregateTilesToZones(gridZones, heatTiles, durationTiles);
+  if (zones.length === 0) {
+    return { zones: [], meta: { zoneCount: 0, fromCache: true, greenerySource: 'osm_landuse' } };
+  }
+
+  // 4. Fetch OSM assets for the AOI and count per zone.
+  const osmAssets = await fetchOsmAssets(aoi);
+  for (const z of zones) {
+    z.assets = countAssetsInZone(osmAssets, z.geometry);
+  }
+
+  // 5. Greenery (satellite segmentation with OSM fallback).
+  const { source: greenerySource } = await fetchGreenery(aoi, zones, date);
+
+  // 6. Env params for wet-bulb health severity.
+  await fetchEnvParams(aoi, zones, date);
+
+  // 7. Score.
+  zones = computePriorityScore(zones);
+
+  // 8. Recommend intervention.
+  for (const z of zones) {
+    const rec = recommendIntervention(z, zones);
+    z.intervention = rec.intervention;
+    z.interventionLabel = rec.interventionLabel;
+    z.reason = rec.reason;
+    z.label = z.label || `Zone ${z.id}`;
+  }
+
+  // 9. Rank descending.
+  zones.sort((a, b) => b.score - a.score);
+
+  // 10. Normalize response shape.
+  const responseZones = zones.map((z) => ({
+    id: z.id,
+    center: z.center,
+    geometry: z.geometry,
+    score: z.score,
+    breakdown: z.breakdown,
+    intervention: z.intervention,
+    interventionLabel: z.interventionLabel,
+    reason: z.reason,
+    assets: z.assets,
+    stats: {
+      tempMean: z.tempMean,
+      tempMax: z.tempMax,
+      longestStreakHrs: z.longestStreakHrs,
+      vegetationPct: z.stats.vegetationPct,
+      wetBulbMax: z.stats.wetBulbMax,
+    },
+  }));
+
+  const fromCache =
+    (tcmCached?.fromCache ?? true) &&
+    (durationCtx?.fromCache ?? true) &&
+    !osmAssets.fromFallback;
+
+  return {
+    zones: responseZones,
+    meta: { zoneCount: responseZones.length, fromCache, greenerySource },
+  };
+}
+
 app.post('/api/prioritize', async (req, res, next) => {
   try {
     const { aoi, date = new Date().toISOString().slice(0, 10) } = req.body;
     validatePolygon(aoi);
 
-    const ring = aoi.coordinates[0];
-    const lons = ring.map((p) => p[0]);
-    const lats = ring.map((p) => p[1]);
-    logger.info('POST /api/prioritize request', {
-      date,
-      aoiBbox: [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)],
-    });
-
-    // 1. Grid AOI into ~500 m cells.
-    const gridZones = buildZoneGrid(aoi, 500);
-    if (gridZones.length === 0) {
-      res.json({ zones: [], meta: { zoneCount: 0, fromCache: true, greenerySource: 'osm_landuse' } });
-      return;
-    }
-
-    // 2. Fetch heat (tcm) + duration (persistence) tiles.
-    const hour = '14:00';
-    const tcmPayload = { aoi, date, hour, mode: 'tcm', granularity: 100 };
-    let tcmResult;
-    const tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
-    if (tcmCached) {
-      tcmResult = tcmCached.data;
-    } else {
-      const upstream = await submitAndPoll('/v1/heatmap', tcmPayload, { mode: 'tcm', granularity: 100 });
-      tcmResult = upstream.result;
-    }
-    const heatTiles = normalizeHotspotTiles(tcmResult);
-
-    let durationCtx;
-    try {
-      durationCtx = await fetchDurationContext(aoi, date, 38);
-    } catch (err) {
-      if (err.code !== 'cache_miss') throw err;
-    }
-
-    const hasCompanionData =
-      durationCtx &&
-      durationCtx.persistenceTiles?.features?.length > 0;
-
-    const durationTiles = hasCompanionData
-      ? durationCtx.persistenceTiles
-      : deriveFallbackDuration(heatTiles, 38);
-
-    // 3. Aggregate tiles into zones.
-    let zones = aggregateTilesToZones(gridZones, heatTiles, durationTiles);
-    if (zones.length === 0) {
-      res.json({ zones: [], meta: { zoneCount: 0, fromCache: true, greenerySource: 'osm_landuse' } });
-      return;
-    }
-
-    // 4. Fetch OSM assets for the AOI and count per zone.
-    const osmAssets = await fetchOsmAssets(aoi);
-    for (const z of zones) {
-      z.assets = countAssetsInZone(osmAssets, z.geometry);
-    }
-
-    // 5. Greenery (satellite segmentation with OSM fallback).
-    const { source: greenerySource } = await fetchGreenery(aoi, zones, date);
-
-    // 6. Env params for wet-bulb health severity.
-    await fetchEnvParams(aoi, zones, date);
-
-    // 7. Score.
-    zones = computePriorityScore(zones);
-
-    // 8. Recommend intervention.
-    for (const z of zones) {
-      const rec = recommendIntervention(z, zones);
-      z.intervention = rec.intervention;
-      z.interventionLabel = rec.interventionLabel;
-      z.reason = rec.reason;
-      z.label = z.label || `Zone ${z.id}`;
-    }
-
-    // 9. Rank descending.
-    zones.sort((a, b) => b.score - a.score);
-
-    // 10. Normalize response shape.
-    const responseZones = zones.map((z) => ({
-      id: z.id,
-      center: z.center,
-      geometry: z.geometry,
-      score: z.score,
-      breakdown: z.breakdown,
-      intervention: z.intervention,
-      interventionLabel: z.interventionLabel,
-      reason: z.reason,
-      assets: z.assets,
-      stats: {
-        tempMean: z.tempMean,
-        tempMax: z.tempMax,
-        longestStreakHrs: z.longestStreakHrs,
-        vegetationPct: z.stats.vegetationPct,
-        wetBulbMax: z.stats.wetBulbMax,
-      },
-    }));
-
-    const fromCache =
-      (tcmCached?.fromCache ?? true) &&
-      (durationCtx?.fromCache ?? true) &&
-      !osmAssets.fromFallback;
+    const { zones, meta } = await computePrioritizedZones(aoi, date);
 
     logger.info('POST /api/prioritize completed', {
-      zoneCount: responseZones.length,
-      fromCache,
-      greenerySource,
+      zoneCount: zones.length,
+      fromCache: meta.fromCache,
+      greenerySource: meta.greenerySource,
     });
 
-    res.json({
-      zones: responseZones,
-      meta: { zoneCount: responseZones.length, fromCache, greenerySource },
+    res.json({ zones, meta });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/allocate', async (req, res, next) => {
+  try {
+    const { aoi, date = new Date().toISOString().slice(0, 10), budgetUsd } = req.body;
+    validatePolygon(aoi);
+    if (typeof budgetUsd !== 'number' || !Number.isFinite(budgetUsd) || budgetUsd < 0) {
+      const err = new Error('budgetUsd must be a non-negative number');
+      err.code = 'invalid_budget';
+      err.status = 422;
+      throw err;
+    }
+
+    // Reuse the prioritize pipeline server-side; allocation is pure
+    // computation on the ranked zones, no new external calls.
+    const { zones } = await computePrioritizedZones(aoi, date);
+    const result = allocateBudget(zones, budgetUsd);
+
+    logger.info('POST /api/allocate completed', {
+      budgetUsd,
+      funded: result.funded.length,
+      unfunded: result.unfunded.length,
+      totalSpent: result.totalSpent,
     });
+
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -7,15 +7,19 @@
  */
 
 import useMap from './map/useMap';
+import useDrawArea from './map/useDrawArea';
+import AoiLayer from './map/AoiLayer';
 import HeatLayer from './map/HeatLayer';
 import DurationLayer from './map/DurationLayer';
 import HotspotMarkers from './map/HotspotMarkers';
 import HotspotPopup from './map/HotspotPopup';
 import ZoneLayer from './map/ZoneLayer';
+import FundedZonesLayer from './map/FundedZonesLayer';
 import { useStore } from '../state';
 
 export default function MapView() {
   const { containerRef, map } = useMap();
+  useDrawArea(map);
 
   const hotspots = useStore((s) => s.hotspots);
   const heatTiles = useStore((s) => s.heatTiles);
@@ -24,12 +28,14 @@ export default function MapView() {
   const showDurationLayer = useStore((s) => s.showDurationLayer);
   const durationThresholdC = useStore((s) => s.durationThresholdC);
   const selectedZone = useStore((s) => s.selectedZone);
+  const allocation = useStore((s) => s.allocation);
   const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
       {map && (
         <>
+          <AoiLayer map={map} />
           <HeatLayer map={map} heatTiles={heatTiles} />
           <DurationLayer
             map={map}
@@ -49,6 +55,7 @@ export default function MapView() {
             thresholdC={durationThresholdC}
           />
           <ZoneLayer map={map} selectedZone={selectedZone} />
+          <FundedZonesLayer map={map} fundedZones={allocation?.funded} />
         </>
       )}
     </div>

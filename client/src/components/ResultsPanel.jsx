@@ -6,9 +6,19 @@
  * opens the ZoneCard.
  */
 
+import { useState } from 'react';
 import { useStore } from '../state';
 import { scoreColor } from '../colors';
+import { allocateBudget } from '../api';
 import ZoneCard from './ZoneCard';
+
+const COST_TOOLTIP = 'Rough municipal unit-cost estimate — see the documented estimate table (server/src/costs.js)';
+
+function formatUsd(n) {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`;
+  if (n >= 1_000) return `$${Math.round(n / 1_000)}k`;
+  return `$${n}`;
+}
 
 function findNearestHotspot(hotspots, lon, lat) {
   if (!hotspots || hotspots.length === 0) return null;
@@ -22,18 +32,46 @@ function findNearestHotspot(hotspots, lon, lat) {
 
 export default function ResultsPanel() {
   const map = useStore((s) => s.mapRef);
+  const aoi = useStore((s) => s.aoi);
   const zones = useStore((s) => s.prioritizeZones);
   const hotspots = useStore((s) => s.hotspots);
   const status = useStore((s) => s.prioritizeStatus);
   const error = useStore((s) => s.prioritizeError);
   const show = useStore((s) => s.showResultsPanel);
   const selectedZone = useStore((s) => s.selectedZone);
+  const allocateStatus = useStore((s) => s.allocateStatus);
+  const allocateError = useStore((s) => s.allocateError);
+  const allocation = useStore((s) => s.allocation);
 
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const setAllocateStatus = useStore((s) => s.setAllocateStatus);
+  const setAllocateError = useStore((s) => s.setAllocateError);
+  const setAllocation = useStore((s) => s.setAllocation);
+
+  const [budgetInput, setBudgetInput] = useState('');
 
   if (!show) return null;
+
+  const ranked = status === 'completed' && zones.length > 0;
+  const fundedIds = new Set((allocation?.funded || []).map((z) => z.id));
+  const fundedCostById = new Map((allocation?.funded || []).map((z) => [z.id, z.cost]));
+
+  async function handleOptimize() {
+    const budgetUsd = Number(budgetInput.replace(/[^0-9.]/g, ''));
+    if (!aoi || !Number.isFinite(budgetUsd) || budgetUsd <= 0) return;
+    setAllocateStatus('processing');
+    setAllocateError(null);
+    try {
+      const data = await allocateBudget(aoi, { budgetUsd });
+      setAllocation(data);
+      setAllocateStatus('completed');
+    } catch (err) {
+      setAllocateError({ code: err.code, message: err.message });
+      setAllocateStatus('error');
+    }
+  }
 
   function handleSelect(zone) {
     setSelectedZone(zone);
@@ -110,6 +148,95 @@ export default function ResultsPanel() {
         </button>
       </div>
 
+      {ranked && (
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={budgetInput}
+              onChange={(e) => setBudgetInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleOptimize();
+              }}
+              placeholder="Budget (USD), e.g. 2000000"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '8px 10px',
+                borderRadius: 8,
+                border: '1px solid var(--glass-border)',
+                background: 'var(--track-bg)',
+                color: 'var(--text-h)',
+                fontSize: 13,
+                outline: 'none',
+              }}
+            />
+            <button
+              onClick={handleOptimize}
+              disabled={allocateStatus === 'processing' || !budgetInput.trim()}
+              style={{
+                padding: '8px 14px',
+                borderRadius: 8,
+                border: 'none',
+                background: 'var(--accent-bg)',
+                color: 'var(--text-h)',
+                fontSize: 13,
+                fontWeight: 600,
+                cursor: allocateStatus === 'processing' ? 'wait' : 'pointer',
+                opacity: allocateStatus === 'processing' || !budgetInput.trim() ? 0.5 : 1,
+              }}
+            >
+              {allocateStatus === 'processing' ? 'Optimizing…' : 'Optimize'}
+            </button>
+          </div>
+
+          {allocateStatus === 'error' && allocateError && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: 10,
+                borderRadius: 8,
+                background: 'var(--danger-bg)',
+                color: 'var(--danger)',
+                fontSize: 12,
+              }}
+            >
+              {allocateError.code === 'cache_miss'
+                ? 'No cached fixture for this area. Switch to live mode or use the Phoenix demo area.'
+                : allocateError.message}
+            </div>
+          )}
+
+          {allocation && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px 10px',
+                borderRadius: 8,
+                background: 'var(--track-bg)',
+                fontSize: 12,
+                color: 'var(--text-h)',
+                lineHeight: 1.5,
+              }}
+            >
+              <span title={COST_TOOLTIP} style={{ borderBottom: '1px dotted var(--text-l)', cursor: 'help' }}>
+                ~{formatUsd(allocation.totalSpent)}
+              </span>{' '}
+              of {formatUsd(allocation.budgetUsd)} allocated · {allocation.impact.zonesFunded} zone
+              {allocation.impact.zonesFunded === 1 ? '' : 's'} funded ·{' '}
+              {allocation.impact.dangerHoursAddressed.toLocaleString()} danger-hours addressed
+              {allocation.unfunded.length > 0 && (
+                <div style={{ color: 'var(--text-l)', marginTop: 2 }}>
+                  {allocation.unfunded.length} zone{allocation.unfunded.length === 1 ? '' : 's'} next in line when
+                  more budget is available.
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {status === 'processing' && (
         <div style={{ color: 'var(--text-l)', fontSize: 13, padding: '12px 0' }}>Analyzing zones…</div>
       )}
@@ -136,6 +263,9 @@ export default function ResultsPanel() {
         {zones.map((zone, idx) => {
           const selected = selectedZone?.id === zone.id;
           const color = scoreColor(zone.score);
+          const funded = fundedIds.has(zone.id);
+          const dimmed = allocation != null && !funded;
+          const fundedCost = fundedCostById.get(zone.id);
           return (
             <div
               key={zone.id}
@@ -150,6 +280,7 @@ export default function ResultsPanel() {
                 background: selected ? 'var(--accent-bg)' : 'transparent',
                 borderBottom: '1px solid var(--border)',
                 transition: 'background 0.15s',
+                opacity: dimmed ? 0.55 : 1,
               }}
               onMouseEnter={(e) => {
                 if (!selected) e.currentTarget.style.background = 'var(--accent-bg)';
@@ -176,7 +307,26 @@ export default function ResultsPanel() {
                 {idx + 1}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-h)' }}>Zone {zone.id}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-h)' }}>Zone {zone.id}</span>
+                  {funded && (
+                    <span
+                      title={fundedCost != null ? `${COST_TOOLTIP}` : undefined}
+                      style={{
+                        fontSize: 10,
+                        fontWeight: 700,
+                        letterSpacing: '0.06em',
+                        padding: '2px 6px',
+                        borderRadius: 6,
+                        background: 'rgba(34, 197, 94, 0.18)',
+                        color: '#22c55e',
+                        flexShrink: 0,
+                      }}
+                    >
+                      FUNDED{fundedCost != null ? ` ~${formatUsd(fundedCost)}` : ''}
+                    </span>
+                  )}
+                </div>
                 <div
                   style={{
                     fontSize: 12,

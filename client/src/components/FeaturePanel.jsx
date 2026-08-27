@@ -22,6 +22,9 @@ const steps = [
 
 export default function FeaturePanel() {
   const aoi = useStore((s) => s.aoi);
+  const aoiMode = useStore((s) => s.aoiMode);
+  const drawing = useStore((s) => s.drawing);
+  const drawError = useStore((s) => s.drawError);
   const analysisStatus = useStore((s) => s.analysisStatus);
   const analysisError = useStore((s) => s.analysisError);
   const analysisElapsed = useStore((s) => s.analysisElapsed);
@@ -39,6 +42,9 @@ export default function FeaturePanel() {
   const setHotspots = useStore((s) => s.setHotspots);
   const setHeatTiles = useStore((s) => s.setHeatTiles);
   const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
+  const setAoiMode = useStore((s) => s.setAoiMode);
+  const startDrawing = useStore((s) => s.startDrawing);
+  const clearCustomArea = useStore((s) => s.clearCustomArea);
 
   const setDurationStatus = useStore((s) => s.setDurationStatus);
   const setDurationError = useStore((s) => s.setDurationError);
@@ -136,6 +142,116 @@ export default function FeaturePanel() {
         }}
       >
         Features
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            fontSize: 12,
+            fontWeight: 600,
+            color: 'var(--text-m)',
+            marginBottom: 8,
+          }}
+        >
+          Area
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 8,
+            padding: 4,
+            borderRadius: 10,
+            background: 'var(--input-bg)',
+            border: '1px solid var(--glass-border)',
+          }}
+        >
+          <button
+            onClick={() => setAoiMode('auto')}
+            disabled={aoiMode === 'auto' && !drawing}
+            style={{
+              padding: '6px 8px',
+              borderRadius: 7,
+              border: 'none',
+              background: aoiMode === 'auto' && !drawing ? 'var(--accent)' : 'transparent',
+              color: aoiMode === 'auto' && !drawing ? '#fff' : 'var(--text-m)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >
+            Current view
+          </button>
+          <button
+            onClick={() => (aoiMode === 'manual' ? setAoiMode('auto') : startDrawing())}
+            disabled={drawing}
+            style={{
+              padding: '6px 8px',
+              borderRadius: 7,
+              border: 'none',
+              background: drawing || aoiMode === 'manual' ? 'var(--accent)' : 'transparent',
+              color: drawing || aoiMode === 'manual' ? '#fff' : 'var(--text-m)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: drawing ? 'not-allowed' : 'pointer',
+              transition: 'background 0.15s, color 0.15s',
+            }}
+          >
+            {drawing ? 'Drawing…' : 'Draw custom area'}
+          </button>
+        </div>
+
+        {drawing && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 8,
+              background: 'var(--accent-bg)',
+              color: 'var(--text-m)',
+              fontSize: 12,
+              lineHeight: 1.4,
+            }}
+          >
+            Click to add points · double-click or click the first point to finish · Esc to cancel
+          </div>
+        )}
+
+        {aoiMode === 'manual' && !drawing && (
+          <button
+            onClick={clearCustomArea}
+            style={{
+              marginTop: 10,
+              width: '100%',
+              padding: '8px 0',
+              borderRadius: 8,
+              border: '1px solid var(--glass-border)',
+              background: 'var(--input-bg)',
+              color: 'var(--text-m)',
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Clear area
+          </button>
+        )}
+
+        {drawError && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: 10,
+              borderRadius: 8,
+              background: 'var(--danger-bg)',
+              color: 'var(--danger)',
+              fontSize: 12,
+            }}
+          >
+            {drawError}
+          </div>
+        )}
       </div>
 
       <button
