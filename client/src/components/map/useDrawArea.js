@@ -3,12 +3,13 @@
  *
  * Attaches MapLibre interaction handlers while `drawing` is true:
  * - click adds a vertex (or closes the ring when clicking near the first point)
- * - mousemove updates the rubber-band line
+ * - mousemove updates the rubber-band line directly on the map source
  * - dblclick finishes the polygon
  * - Escape cancels drawing
  *
- * Click/dblclick are debounced so a double-click finishes the ring without
- * adding extra vertices and without the rubber-band flickering on every click.
+ * The draft line is updated directly against the MapLibre source instead of
+ * through React state, so the rubber band follows the cursor smoothly without
+ * re-rendering the component tree on every mousemove.
  */
 
 import { useEffect } from 'react';
@@ -23,10 +24,27 @@ function distance(a, b) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+function draftData(draftVertices, cursor) {
+  if (draftVertices.length === 0 && !cursor) {
+    return { type: 'FeatureCollection', features: [] };
+  }
+  const coords = [...draftVertices];
+  if (cursor) coords.push(cursor);
+  return {
+    type: 'FeatureCollection',
+    features: [
+      {
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: coords },
+      },
+    ],
+  };
+}
+
 export default function useDrawArea(map) {
   const drawing = useStore((s) => s.drawing);
   const addDraftVertex = useStore((s) => s.addDraftVertex);
-  const setDraftCursor = useStore((s) => s.setDraftCursor);
   const closeDraft = useStore((s) => s.closeDraft);
   const cancelDrawing = useStore((s) => s.cancelDrawing);
 
@@ -36,10 +54,34 @@ export default function useDrawArea(map) {
     const container = map.getContainer();
     container.classList.add('map-draw-crosshair');
 
+    if (!map.getSource('draft-source')) {
+      map.addSource('draft-source', {
+        type: 'geojson',
+        data: draftData(useStore.getState().draftVertices, null),
+      });
+      map.addLayer({
+        id: 'draft-line',
+        type: 'line',
+        source: 'draft-source',
+        paint: {
+          'line-color': '#4c9ffe',
+          'line-width': 1.5,
+          'line-dasharray': [2, 2],
+        },
+      });
+    }
+
     let clickTimer = null;
 
+    function updateDraft(cursor) {
+      const source = map.getSource('draft-source');
+      if (source) {
+        source.setData(draftData(useStore.getState().draftVertices, cursor));
+      }
+    }
+
     function onMouseMove(e) {
-      setDraftCursor([e.lngLat.lng, e.lngLat.lat]);
+      updateDraft([e.lngLat.lng, e.lngLat.lat]);
     }
 
     function onClick(e) {
@@ -62,6 +104,7 @@ export default function useDrawArea(map) {
           }
         }
         addDraftVertex([e.lngLat.lng, e.lngLat.lat]);
+        updateDraft([e.lngLat.lng, e.lngLat.lat]);
       }, CLICK_TIMEOUT_MS);
     }
 
@@ -92,7 +135,9 @@ export default function useDrawArea(map) {
       map.off('dblclick', onDblClick);
       window.removeEventListener('keydown', onKeyDown);
       container.classList.remove('map-draw-crosshair');
-      setDraftCursor(null);
+
+      if (map.getLayer('draft-line')) map.removeLayer('draft-line');
+      if (map.getSource('draft-source')) map.removeSource('draft-source');
     };
-  }, [map, drawing, addDraftVertex, setDraftCursor, closeDraft, cancelDrawing]);
+  }, [map, drawing, addDraftVertex, closeDraft, cancelDrawing]);
 }

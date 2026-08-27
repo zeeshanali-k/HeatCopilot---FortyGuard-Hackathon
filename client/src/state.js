@@ -112,7 +112,6 @@ export const useStore = create((set, get) => ({
   aoi: null,
   aoiMode: 'auto',
   draftVertices: [],
-  draftCursor: null,
   drawing: false,
   drawError: null,
   setMapRef: (mapRef) => set({ mapRef }),
@@ -145,7 +144,6 @@ export const useStore = create((set, get) => ({
       draftVertices: [...state.draftVertices, pt],
       drawError: null,
     })),
-  setDraftCursor: (draftCursor) => set({ draftCursor }),
   closeDraft: () => {
     const state = get();
     if (state.draftVertices.length < 3) {

@@ -3,9 +3,10 @@
  *
  * Renders the current AOI on the map. In auto mode the viewport-derived polygon
  * is shown as a dashed outline with a small label. In manual mode it is shown as
- * a solid outline with a translucent fill and draggable vertex handles. While
- * drawing, it also renders the draft polyline and a rubber-band segment to the
- * cursor.
+ * a solid outline with a translucent fill and draggable vertex handles.
+ *
+ * The draft polyline while drawing is managed by useDrawArea directly against
+ * the map source for smooth performance.
  */
 
 import { useEffect, useRef } from 'react';
@@ -67,20 +68,11 @@ function labelPointFromPolygon(aoi) {
   };
 }
 
-function draftFeature(draftVertices, cursor) {
-  if (draftVertices.length === 0) return { type: 'FeatureCollection', features: [] };
-  const coords = [...draftVertices];
-  if (cursor) coords.push(cursor);
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: {},
-        geometry: { type: 'LineString', coordinates: coords },
-      },
-    ],
-  };
+function polygonWithMovedVertex(aoi, index, [lon, lat]) {
+  const ring = aoi.coordinates[0].map((pt, i) => (i === index ? [lon, lat] : pt));
+  if (index === 0) ring[ring.length - 1] = [lon, lat];
+  if (index === ring.length - 1) ring[0] = [lon, lat];
+  return { ...aoi, coordinates: [ring] };
 }
 
 function createVertexElement() {
@@ -92,8 +84,6 @@ function createVertexElement() {
 export default function AoiLayer({ map }) {
   const aoi = useStore((s) => s.aoi);
   const aoiMode = useStore((s) => s.aoiMode);
-  const draftVertices = useStore((s) => s.draftVertices);
-  const draftCursor = useStore((s) => s.draftCursor);
   const updateAoiVertex = useStore((s) => s.updateAoiVertex);
   const markersRef = useRef([]);
 
@@ -104,14 +94,12 @@ export default function AoiLayer({ map }) {
     const aoiData = toFeatureCollection(aoi);
     const vertexData = verticesFromPolygon(aoi);
     const labelData = labelPointFromPolygon(aoi);
-    const draftData = draftFeature(draftVertices, draftCursor);
 
     const aoiExists = map.getSource('aoi-source');
     if (aoiExists) {
       map.getSource('aoi-source').setData(aoiData);
       map.getSource('aoi-vertices').setData(vertexData);
       map.getSource('aoi-label').setData(labelData);
-      map.getSource('draft-source').setData(draftData);
 
       map.setPaintProperty('aoi-fill', 'fill-opacity', aoiMode === 'manual' ? FILL_OPACITY : 0);
       map.setPaintProperty('aoi-outline', 'line-dasharray', aoiMode === 'auto' ? [2, 2] : [1, 0]);
@@ -122,7 +110,6 @@ export default function AoiLayer({ map }) {
     map.addSource('aoi-source', { type: 'geojson', data: aoiData });
     map.addSource('aoi-vertices', { type: 'geojson', data: vertexData });
     map.addSource('aoi-label', { type: 'geojson', data: labelData });
-    map.addSource('draft-source', { type: 'geojson', data: draftData });
 
     map.addLayer({
       id: 'aoi-fill',
@@ -158,17 +145,6 @@ export default function AoiLayer({ map }) {
     });
 
     map.addLayer({
-      id: 'draft-line',
-      type: 'line',
-      source: 'draft-source',
-      paint: {
-        'line-color': ACCENT,
-        'line-width': 1.5,
-        'line-dasharray': [2, 2],
-      },
-    });
-
-    map.addLayer({
       id: 'aoi-label',
       type: 'symbol',
       source: 'aoi-label',
@@ -188,16 +164,16 @@ export default function AoiLayer({ map }) {
     });
 
     return () => {
-      const layers = ['aoi-fill', 'aoi-outline', 'aoi-vertices', 'draft-line', 'aoi-label'];
+      const layers = ['aoi-fill', 'aoi-outline', 'aoi-vertices', 'aoi-label'];
       layers.forEach((id) => {
         if (map.getLayer(id)) map.removeLayer(id);
       });
-      const sources = ['aoi-source', 'aoi-vertices', 'aoi-label', 'draft-source'];
+      const sources = ['aoi-source', 'aoi-vertices', 'aoi-label'];
       sources.forEach((id) => {
         if (map.getSource(id)) map.removeSource(id);
       });
     };
-  }, [map, aoi, aoiMode, draftVertices, draftCursor]);
+  }, [map, aoi, aoiMode]);
 
   // Draggable vertex handles for manual AOIs.
   useEffect(() => {
@@ -238,9 +214,18 @@ export default function AoiLayer({ map }) {
         .setLngLat([lon, lat])
         .addTo(map);
 
+      marker.on('drag', () => {
+        const { lng, lat: newLat } = marker.getLngLat();
+        const updated = polygonWithMovedVertex(aoi, i, [lng, newLat]);
+        const aoiSource = map.getSource('aoi-source');
+        const vertexSource = map.getSource('aoi-vertices');
+        if (aoiSource) aoiSource.setData(toFeatureCollection(updated));
+        if (vertexSource) vertexSource.setData(verticesFromPolygon(updated));
+      });
+
       marker.on('dragend', () => {
-        const { lng, lat } = marker.getLngLat();
-        updateAoiVertex(i, [lng, lat]);
+        const { lng, lat: newLat } = marker.getLngLat();
+        updateAoiVertex(i, [lng, newLat]);
       });
 
       markersRef.current.push(marker);
