@@ -3,11 +3,13 @@
  *
  * Renders the current AOI on the map. In auto mode the viewport-derived polygon
  * is shown as a dashed outline with a small label. In manual mode it is shown as
- * a solid outline with a translucent fill and vertex handles. While drawing, it
- * also renders the draft polyline and a rubber-band segment to the cursor.
+ * a solid outline with a translucent fill and draggable vertex handles. While
+ * drawing, it also renders the draft polyline and a rubber-band segment to the
+ * cursor.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
+import maplibregl from 'maplibre-gl';
 import { useStore } from '../../state';
 
 const ACCENT = '#4c9ffe';
@@ -81,13 +83,21 @@ function draftFeature(draftVertices, cursor) {
   };
 }
 
+function createVertexElement() {
+  const el = document.createElement('div');
+  el.className = 'aoi-vertex-handle';
+  return el;
+}
+
 export default function AoiLayer({ map }) {
   const aoi = useStore((s) => s.aoi);
   const aoiMode = useStore((s) => s.aoiMode);
   const draftVertices = useStore((s) => s.draftVertices);
   const draftCursor = useStore((s) => s.draftCursor);
-  const drawing = useStore((s) => s.drawing);
+  const updateAoiVertex = useStore((s) => s.updateAoiVertex);
+  const markersRef = useRef([]);
 
+  // Render/update AOI sources and layers.
   useEffect(() => {
     if (!map) return;
 
@@ -102,6 +112,10 @@ export default function AoiLayer({ map }) {
       map.getSource('aoi-vertices').setData(vertexData);
       map.getSource('aoi-label').setData(labelData);
       map.getSource('draft-source').setData(draftData);
+
+      map.setPaintProperty('aoi-fill', 'fill-opacity', aoiMode === 'manual' ? FILL_OPACITY : 0);
+      map.setPaintProperty('aoi-outline', 'line-dasharray', aoiMode === 'auto' ? [2, 2] : [1, 0]);
+      map.setLayoutProperty('aoi-label', 'visibility', aoiMode === 'auto' ? 'visible' : 'none');
       return;
     }
 
@@ -164,6 +178,7 @@ export default function AoiLayer({ map }) {
         'text-offset': [0, -1],
         'text-anchor': 'bottom',
         'text-allow-overlap': true,
+        visibility: aoiMode === 'auto' ? 'visible' : 'none',
       },
       paint: {
         'text-color': ACCENT,
@@ -182,7 +197,55 @@ export default function AoiLayer({ map }) {
         if (map.getSource(id)) map.removeSource(id);
       });
     };
-  }, [map, aoi, aoiMode, draftVertices, draftCursor, drawing]);
+  }, [map, aoi, aoiMode, draftVertices, draftCursor]);
+
+  // Draggable vertex handles for manual AOIs.
+  useEffect(() => {
+    return () => {
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!map) return;
+
+    if (aoiMode !== 'manual' || !aoi || aoi.type !== 'Polygon') {
+      markersRef.current.forEach((m) => m.remove());
+      markersRef.current = [];
+      return;
+    }
+
+    const ring = aoi.coordinates[0];
+    // Exclude the closing duplicate vertex.
+    const editableCount = ring.length - 1;
+
+    if (markersRef.current.length === editableCount) {
+      markersRef.current.forEach((marker, i) => marker.setLngLat(ring[i]));
+      return;
+    }
+
+    markersRef.current.forEach((m) => m.remove());
+    markersRef.current = [];
+
+    for (let i = 0; i < editableCount; i += 1) {
+      const [lon, lat] = ring[i];
+      const marker = new maplibregl.Marker({
+        element: createVertexElement(),
+        anchor: 'center',
+        draggable: true,
+      })
+        .setLngLat([lon, lat])
+        .addTo(map);
+
+      marker.on('dragend', () => {
+        const { lng, lat } = marker.getLngLat();
+        updateAoiVertex(i, [lng, lat]);
+      });
+
+      markersRef.current.push(marker);
+    }
+  }, [map, aoi, aoiMode, updateAoiVertex]);
 
   return null;
 }

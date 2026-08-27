@@ -6,12 +6,16 @@
  * - mousemove updates the rubber-band line
  * - dblclick finishes the polygon
  * - Escape cancels drawing
+ *
+ * Click/dblclick are debounced so a double-click finishes the ring without
+ * adding extra vertices and without the rubber-band flickering on every click.
  */
 
 import { useEffect } from 'react';
 import { useStore } from '../../state';
 
 const FIRST_VERTEX_CLOSE_PX = 14;
+const CLICK_TIMEOUT_MS = 250;
 
 function distance(a, b) {
   const dx = a.x - b.x;
@@ -21,7 +25,6 @@ function distance(a, b) {
 
 export default function useDrawArea(map) {
   const drawing = useStore((s) => s.drawing);
-  const draftVertices = useStore((s) => s.draftVertices);
   const addDraftVertex = useStore((s) => s.addDraftVertex);
   const setDraftCursor = useStore((s) => s.setDraftCursor);
   const closeDraft = useStore((s) => s.closeDraft);
@@ -33,25 +36,41 @@ export default function useDrawArea(map) {
     const container = map.getContainer();
     container.classList.add('map-draw-crosshair');
 
+    let clickTimer = null;
+
     function onMouseMove(e) {
       setDraftCursor([e.lngLat.lng, e.lngLat.lat]);
     }
 
     function onClick(e) {
       e.preventDefault();
-      if (draftVertices.length > 2) {
-        const first = draftVertices[0];
-        const firstPx = map.project(first);
-        if (distance(firstPx, e.point) < FIRST_VERTEX_CLOSE_PX) {
-          closeDraft();
-          return;
-        }
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+        closeDraft();
+        return;
       }
-      addDraftVertex([e.lngLat.lng, e.lngLat.lat]);
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        const vertices = useStore.getState().draftVertices;
+        if (vertices.length > 2) {
+          const first = vertices[0];
+          const firstPx = map.project(first);
+          if (distance(firstPx, e.point) < FIRST_VERTEX_CLOSE_PX) {
+            closeDraft();
+            return;
+          }
+        }
+        addDraftVertex([e.lngLat.lng, e.lngLat.lat]);
+      }, CLICK_TIMEOUT_MS);
     }
 
     function onDblClick(e) {
       e.preventDefault();
+      if (clickTimer) {
+        clearTimeout(clickTimer);
+        clickTimer = null;
+      }
       closeDraft();
     }
 
@@ -67,6 +86,7 @@ export default function useDrawArea(map) {
     window.addEventListener('keydown', onKeyDown);
 
     return () => {
+      if (clickTimer) clearTimeout(clickTimer);
       map.off('mousemove', onMouseMove);
       map.off('click', onClick);
       map.off('dblclick', onDblClick);
@@ -74,5 +94,5 @@ export default function useDrawArea(map) {
       container.classList.remove('map-draw-crosshair');
       setDraftCursor(null);
     };
-  }, [map, drawing, draftVertices, addDraftVertex, setDraftCursor, closeDraft, cancelDrawing]);
+  }, [map, drawing, addDraftVertex, setDraftCursor, closeDraft, cancelDrawing]);
 }
