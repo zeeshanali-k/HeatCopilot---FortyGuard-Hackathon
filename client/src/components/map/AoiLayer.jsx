@@ -33,6 +33,7 @@ function toFeatureCollection(geometry) {
     features: [
       {
         type: 'Feature',
+        id: 'aoi',
         properties: {},
         geometry,
       },
@@ -45,8 +46,9 @@ function verticesFromPolygon(aoi) {
   const ring = aoi.coordinates[0];
   return {
     type: 'FeatureCollection',
-    features: ring.map(([lon, lat]) => ({
+    features: ring.map(([lon, lat], idx) => ({
       type: 'Feature',
+      id: `vertex_${idx}`,
       properties: {},
       geometry: { type: 'Point', coordinates: [lon, lat] },
     })),
@@ -104,6 +106,7 @@ export default function AoiLayer({ map }) {
       map.setPaintProperty('aoi-fill', 'fill-opacity', aoiMode === 'manual' ? FILL_OPACITY : 0);
       map.setPaintProperty('aoi-outline', 'line-dasharray', aoiMode === 'auto' ? [2, 2] : [1, 0]);
       map.setLayoutProperty('aoi-label', 'visibility', aoiMode === 'auto' ? 'visible' : 'none');
+      map.setLayoutProperty('aoi-vertices', 'visibility', aoiMode === 'auto' ? 'visible' : 'none');
       return;
     }
 
@@ -136,6 +139,9 @@ export default function AoiLayer({ map }) {
       id: 'aoi-vertices',
       type: 'circle',
       source: 'aoi-vertices',
+      layout: {
+        visibility: aoiMode === 'auto' ? 'visible' : 'none',
+      },
       paint: {
         'circle-radius': 5,
         'circle-color': '#ffffff',
@@ -218,9 +224,7 @@ export default function AoiLayer({ map }) {
         const { lng, lat: newLat } = marker.getLngLat();
         const updated = polygonWithMovedVertex(aoi, i, [lng, newLat]);
         const aoiSource = map.getSource('aoi-source');
-        const vertexSource = map.getSource('aoi-vertices');
         if (aoiSource) aoiSource.setData(toFeatureCollection(updated));
-        if (vertexSource) vertexSource.setData(verticesFromPolygon(updated));
       });
 
       marker.on('dragend', () => {
