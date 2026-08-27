@@ -112,7 +112,7 @@ export default function CompareView() {
       onTouchEnd={onTouchEnd}
       style={{
         position: 'fixed',
-        left: 16,
+        left: 296,
         right: 16,
         bottom: 16,
         height: '50vh',

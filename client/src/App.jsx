@@ -1,8 +1,9 @@
 /**
  * App component
  *
- * Root layout for HeatCopilot: a full-screen map with floating panels for
- * search, feature controls, results, and a theme toggle.
+ * Root layout for HeatCopilot. The FeaturePanel is a fixed-width docked
+ * sidebar on the left; the map sits in the remaining width so the two never
+ * overlap. Other panels float above the map on the right.
  */
 
 import MapView from './components/MapView';
@@ -11,6 +12,8 @@ import FeaturePanel from './components/FeaturePanel';
 import ResultsPanel from './components/ResultsPanel';
 import ThemeToggle from './components/ThemeToggle';
 import CompareView from './components/CompareView';
+
+const SIDEBAR_WIDTH = 280;
 
 function App() {
   return (
@@ -23,8 +26,18 @@ function App() {
         background: 'var(--bg)',
       }}
     >
-      <MapView />
-      <SearchBox />
+      <div
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: SIDEBAR_WIDTH,
+          right: 0,
+          bottom: 0,
+        }}
+      >
+        <MapView />
+        <SearchBox />
+      </div>
       <FeaturePanel />
       <ResultsPanel />
       <ThemeToggle />
