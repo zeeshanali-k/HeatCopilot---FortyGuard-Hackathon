@@ -6,7 +6,7 @@
  * and a Generate Action Plan section with loading skeleton, retry, and narrative.
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { useStore } from '../state';
 import { scoreColor } from '../colors';
@@ -133,8 +133,76 @@ function SkeletonLine({ width = '100%' }) {
   );
 }
 
+function buildActionPlanContext(zone, zones, allocation, areaLabel, analysisDate) {
+  const rank = zones.findIndex((z) => z.id === zone.id) + 1;
+  const zoneCount = zones.length;
+
+  const topZones = zones
+    .slice(0, 3)
+    .map((z) => ({ id: z.id, score: z.score, interventionLabel: z.interventionLabel }));
+
+  let budget = null;
+  if (allocation) {
+    const funded = allocation.funded.find((z) => z.id === zone.id);
+    const unfunded = allocation.unfunded.find((z) => z.id === zone.id);
+    if (funded) {
+      budget = {
+        budgetUsd: allocation.budgetUsd,
+        funded: true,
+        estimatedCostUsd: funded.cost,
+        runningTotalUsd: funded.runningTotal,
+      };
+    } else if (unfunded) {
+      budget = {
+        budgetUsd: allocation.budgetUsd,
+        funded: false,
+        estimatedCostUsd: unfunded.cost,
+        runningTotalUsd: allocation.totalSpent + unfunded.cost,
+      };
+    }
+  }
+
+  const context = {
+    areaLabel,
+    date: analysisDate,
+    rank,
+    zoneCount,
+    topZones,
+  };
+
+  if (budget) {
+    context.budget = budget;
+  }
+
+  return context;
+}
+
+function NarrativeBlocks({ narrative }) {
+  const blocks = useMemo(() => {
+    return narrative.split(/\n\n+/).filter(Boolean);
+  }, [narrative]);
+
+  return (
+    <div style={{ fontSize: 13, color: 'var(--text-m)' }}>
+      {blocks.map((block, idx) => (
+        <div
+          key={`${idx}-${block.slice(0, 40)}`}
+          className="narrative-block"
+          style={{ animationDelay: `${idx * 100}ms` }}
+        >
+          <ReactMarkdown components={markdownComponents}>{block}</ReactMarkdown>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ZoneCard() {
   const zone = useStore((s) => s.selectedZone);
+  const zones = useStore((s) => s.prioritizeZones);
+  const allocation = useStore((s) => s.allocation);
+  const areaLabel = useStore((s) => s.areaLabel);
+  const analysisDate = useStore((s) => s.analysisDate);
   const setSelectedZone = useStore((s) => s.setSelectedZone);
 
   const actionPlanStatus = useStore((s) => s.actionPlanStatus);
@@ -159,7 +227,8 @@ export default function ZoneCard() {
     setActionPlanStatus('loading');
     setActionPlanError(null);
     try {
-      const data = await generateActionPlan(zone.id, zone);
+      const context = buildActionPlanContext(zone, zones, allocation, areaLabel, analysisDate);
+      const data = await generateActionPlan(zone.id, zone, context);
       setActionPlanNarrative(data.narrative || '');
       setActionPlanEvidencePdfUrl(data.evidencePdfUrl || null);
       setActionPlanStatus('done');
@@ -362,9 +431,7 @@ export default function ZoneCard() {
 
         {actionPlanStatus === 'done' && (
           <div>
-            <div style={{ fontSize: 13, color: 'var(--text-m)' }}>
-              <ReactMarkdown components={markdownComponents}>{actionPlanNarrative}</ReactMarkdown>
-            </div>
+            <NarrativeBlocks narrative={actionPlanNarrative} />
             {actionPlanEvidencePdfUrl && (
               <a
                 href={actionPlanEvidencePdfUrl}

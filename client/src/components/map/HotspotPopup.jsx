@@ -45,6 +45,10 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const saveToHistory = useStore((s) => s.saveToHistory);
+  const aoiMode = useStore((s) => s.aoiMode);
+  const hotspots = useStore((s) => s.hotspots);
+  const durationZones = useStore((s) => s.durationZones);
 
   useEffect(() => {
     if (!map) return;
@@ -97,6 +101,15 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         setShowResultsPanel(true);
         setSelectedZone(nearest);
         setPrioritizeStatus('completed');
+        saveToHistory({
+          aoi,
+          aoiMode,
+          date: DEMO_DATE,
+          hotspots,
+          duration: durationZones,
+          zones: ranked,
+          fromCache: data.meta?.fromCache,
+        });
         if (nearest && map) {
           map.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
         }
@@ -135,6 +148,10 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
     setPrioritizeZones,
     setSelectedZone,
     setShowResultsPanel,
+    saveToHistory,
+    aoiMode,
+    hotspots,
+    durationZones,
   ]);
 
   return null;

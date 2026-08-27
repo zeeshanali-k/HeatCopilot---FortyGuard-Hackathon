@@ -11,6 +11,7 @@ import { useStore } from '../state';
 import { scoreColor } from '../colors';
 import { allocateBudget } from '../api';
 import ZoneCard from './ZoneCard';
+import HistoryPanel from './HistoryPanel';
 
 const COST_TOOLTIP = 'Rough municipal unit-cost estimate — see the documented estimate table (server/src/costs.js)';
 
@@ -51,6 +52,7 @@ export default function ResultsPanel() {
   const setAllocation = useStore((s) => s.setAllocation);
 
   const [budgetInput, setBudgetInput] = useState('');
+  const [activeTab, setActiveTab] = useState('zones');
 
   if (!show) return null;
 
@@ -65,8 +67,15 @@ export default function ResultsPanel() {
     setAllocateError(null);
     try {
       const data = await allocateBudget(aoi, { budgetUsd });
+      // Keep the ranked list in sync with the optimization so the panel shows
+      // exactly the zones the budget was allocated against.
+      const rankedZones = [...(data.funded || []), ...(data.unfunded || [])];
+      if (rankedZones.length > 0) {
+        setPrioritizeZones(rankedZones);
+      }
       setAllocation(data);
       setAllocateStatus('completed');
+      setActiveTab('zones');
     } catch (err) {
       setAllocateError({ code: err.code, message: err.message });
       setAllocateStatus('error');
@@ -106,19 +115,34 @@ export default function ResultsPanel() {
         overflowY: 'auto',
         boxShadow: 'var(--glass-shadow)',
         color: 'var(--text-h)',
+        animation: `slideInRight var(--dur-slow) var(--ease-out) both`,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            textTransform: 'uppercase',
-            letterSpacing: '0.08em',
-            color: 'var(--text-l)',
-          }}
-        >
-          Prioritized Zones
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[
+            { key: 'zones', label: 'Prioritized Zones' },
+            { key: 'history', label: 'History' },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
+                color: activeTab === tab.key ? '#fff' : 'var(--text-l)',
+                background: activeTab === tab.key ? 'var(--accent)' : 'transparent',
+                border: 'none',
+                borderRadius: 7,
+                padding: '5px 10px',
+                cursor: 'pointer',
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
         <button
           onClick={() => setShowResultsPanel(false)}
@@ -148,7 +172,9 @@ export default function ResultsPanel() {
         </button>
       </div>
 
-      {ranked && (
+      {activeTab === 'zones' && (
+        <>
+          {ranked && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', gap: 8 }}>
             <input
@@ -355,11 +381,15 @@ export default function ResultsPanel() {
         })}
       </div>
 
-      {zones.length > 0 && status === 'completed' && (
-        <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-l)' }}>
-          {zones.length} zone{zones.length === 1 ? '' : 's'} ranked by priority score.
-        </div>
+          {zones.length > 0 && status === 'completed' && (
+            <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-l)' }}>
+              {zones.length} zone{zones.length === 1 ? '' : 's'} ranked by priority score.
+            </div>
+          )}
+        </>
       )}
+
+      {activeTab === 'history' && <HistoryPanel />}
     </div>
   );
 }

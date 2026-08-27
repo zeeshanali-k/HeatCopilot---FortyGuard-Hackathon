@@ -53,8 +53,8 @@ export async function allocateBudget(aoi, { date, budgetUsd } = {}) {
   });
 }
 
-export async function generateActionPlan(zoneId, zoneData) {
-  return post('/api/action-plan', { zoneId, zoneData });
+export async function generateActionPlan(zoneId, zoneData, context) {
+  return post('/api/action-plan', { zoneId, zoneData, context });
 }
 
 export async function searchNominatim(query) {
@@ -62,4 +62,12 @@ export async function searchNominatim(query) {
   const res = await fetch(url, { headers: { 'User-Agent': 'HeatCopilot/1.0' } });
   if (!res.ok) throw new Error('Search failed');
   return res.json();
+}
+
+export async function reverseGeocode(lat, lon) {
+  const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&zoom=14&addressdetails=0`;
+  const res = await fetch(url, { headers: { 'User-Agent': 'HeatCopilot/1.0' } });
+  if (!res.ok) return null;
+  const data = await res.json().catch(() => null);
+  return data?.display_name || null;
 }
