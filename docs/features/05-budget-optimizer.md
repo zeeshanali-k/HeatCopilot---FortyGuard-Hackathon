@@ -8,7 +8,7 @@ Origin: `docs/winning-strategy-analysis.md` gap #1 — the strongest differentia
 
 - Frontend: budget input field (USD) in ResultsPanel header, shown once zones are ranked.
 - Backend: `POST /api/allocate` — takes ranked zones (or reuses `/api/prioritize` output server-side) + `budgetUsd` → greedy selection down the ranked list until budget is exhausted.
-- Cost model: static, documented unit-cost table per intervention (rough municipal estimates, clearly labeled as estimates):
+- Cost model: static, documented unit-cost table per intervention (rough municipal estimates, clearly labeled as estimates). Flat per-zone defaults below; upgraded to user-editable unit pricing in [`10-cost-assumptions.md`](10-cost-assumptions.md):
 
 ```js
 const INTERVENTION_COSTS = {

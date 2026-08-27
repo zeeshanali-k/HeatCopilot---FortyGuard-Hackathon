@@ -67,8 +67,15 @@ export default function ResultsPanel() {
     setAllocateError(null);
     try {
       const data = await allocateBudget(aoi, { budgetUsd });
+      // Keep the ranked list in sync with the optimization so the panel shows
+      // exactly the zones the budget was allocated against.
+      const rankedZones = [...(data.funded || []), ...(data.unfunded || [])];
+      if (rankedZones.length > 0) {
+        setPrioritizeZones(rankedZones);
+      }
       setAllocation(data);
       setAllocateStatus('completed');
+      setActiveTab('zones');
     } catch (err) {
       setAllocateError({ code: err.code, message: err.message });
       setAllocateStatus('error');
