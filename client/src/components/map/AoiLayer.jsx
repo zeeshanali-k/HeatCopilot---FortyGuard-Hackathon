@@ -88,6 +88,7 @@ export default function AoiLayer({ map }) {
   const aoiMode = useStore((s) => s.aoiMode);
   const updateAoiVertex = useStore((s) => s.updateAoiVertex);
   const markersRef = useRef([]);
+  const draggingRef = useRef(false);
 
   // Render/update AOI sources and layers.
   useEffect(() => {
@@ -99,7 +100,11 @@ export default function AoiLayer({ map }) {
 
     const aoiExists = map.getSource('aoi-source');
     if (aoiExists) {
-      map.getSource('aoi-source').setData(aoiData);
+      // While a vertex is being dragged, the drag handler owns the polygon source
+      // so the React effect must not snap it back to the stale store AOI.
+      if (!draggingRef.current) {
+        map.getSource('aoi-source').setData(aoiData);
+      }
       map.getSource('aoi-vertices').setData(vertexData);
       map.getSource('aoi-label').setData(labelData);
 
@@ -220,6 +225,10 @@ export default function AoiLayer({ map }) {
         .setLngLat([lon, lat])
         .addTo(map);
 
+      marker.on('dragstart', () => {
+        draggingRef.current = true;
+      });
+
       marker.on('drag', () => {
         const { lng, lat: newLat } = marker.getLngLat();
         const updated = polygonWithMovedVertex(aoi, i, [lng, newLat]);
@@ -228,6 +237,7 @@ export default function AoiLayer({ map }) {
       });
 
       marker.on('dragend', () => {
+        draggingRef.current = false;
         const { lng, lat: newLat } = marker.getLngLat();
         updateAoiVertex(i, [lng, newLat]);
       });
