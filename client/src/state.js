@@ -133,6 +133,8 @@ export const useStore = create((set, get) => ({
     }),
   startDrawing: () =>
     set({
+      aoiMode: 'manual',
+      aoi: null,
       drawing: true,
       draftVertices: [],
       drawError: null,
@@ -169,7 +171,14 @@ export const useStore = create((set, get) => ({
     });
     return true;
   },
-  cancelDrawing: () => set({ drawing: false, draftVertices: [], drawError: null }),
+  cancelDrawing: () =>
+    set((state) => ({
+      aoiMode: 'auto',
+      aoi: aoiFromMap(state.mapRef),
+      drawing: false,
+      draftVertices: [],
+      drawError: null,
+    })),
   clearCustomArea: () =>
     set((state) => ({
       aoiMode: 'auto',
