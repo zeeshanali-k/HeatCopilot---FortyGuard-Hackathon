@@ -10,6 +10,7 @@ import { reverseGeocode } from './api';
 
 const STORAGE_KEY = 'fortyguard-theme';
 const HISTORY_STORAGE_KEY = 'heatcopilot:history:v1';
+const COSTS_STORAGE_KEY = 'heatcopilot:costs:v1';
 const HISTORY_MAX_ENTRIES = 20;
 export const HISTORY_PALETTE = ['#4c9ffe', '#22c55e', '#f59e0b', '#a855f7'];
 const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
@@ -127,6 +128,26 @@ function readHistory() {
     // ignore
   }
   return [];
+}
+
+function persistCostOverrides(overrides) {
+  try {
+    localStorage.setItem(COSTS_STORAGE_KEY, JSON.stringify(overrides));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function readCostOverrides() {
+  try {
+    const raw = localStorage.getItem(COSTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // ignore
+  }
+  return {};
 }
 
 function clearAnalysisResults() {
@@ -357,14 +378,28 @@ export const useStore = create((set, get) => ({
   // Budget Optimizer state
   allocateStatus: 'idle', // idle | processing | completed | error
   allocateError: null,
-  allocation: null, // { funded, unfunded, totalSpent, budgetUsd, impact }
+  allocation: null, // { funded, unfunded, totalSpent, budgetUsd, impact, meta }
+  costOverrides: readCostOverrides(), // user-editable cost assumptions
+  effectiveCosts: null, // cost table echoed from the last /api/allocate response
   setAllocateStatus: (allocateStatus) => set({ allocateStatus }),
   setAllocateError: (allocateError) => set({ allocateError }),
-  setAllocation: (allocation) => set({ allocation }),
+  setAllocation: (allocation) => set({
+    allocation,
+    effectiveCosts: allocation?.meta?.effectiveCosts || null,
+  }),
+  setCostOverrides: (costOverrides) => {
+    persistCostOverrides(costOverrides);
+    set({ costOverrides });
+  },
+  resetCostOverrides: () => {
+    persistCostOverrides({});
+    set({ costOverrides: {}, effectiveCosts: null });
+  },
   resetAllocate: () => set({
     allocateStatus: 'idle',
     allocateError: null,
     allocation: null,
+    effectiveCosts: null,
   }),
 
   // Action Plan state

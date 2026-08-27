@@ -1,7 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { allocateBudget } from './allocate.js';
-import { INTERVENTION_COSTS } from './costs.js';
+import { DEFAULT_COSTS, mergeCosts } from './costs.js';
 
 function makeZone(id, intervention, overrides = {}) {
   return {
@@ -92,7 +92,28 @@ describe('allocateBudget', () => {
 
   it('covers every intervention the rule engine can emit', () => {
     for (const key of ['tree_planting', 'shade_structures', 'cool_pavement', 'school_cooling', 'green_space', 'combined']) {
-      assert.ok(INTERVENTION_COSTS[key], `missing cost for ${key}`);
+      assert.ok(DEFAULT_COSTS[key] || key === 'combined', `missing cost for ${key}`);
     }
+  });
+
+  it('uses custom cost overrides when provided', () => {
+    const zones = [
+      makeZone('z_1', 'shade_structures'), // default 45k
+      makeZone('z_2', 'tree_planting'), // default 120k
+    ];
+    const costs = mergeCosts({ tree_planting: { costPerUnitUsd: 900 } }); // 200 * 900 = 180k
+    const res = allocateBudget(zones, 200_000, costs);
+    // 45k + 180k = 225k > 200k, so only shade structures funded.
+    assert.deepEqual(res.funded.map((z) => z.id), ['z_1']);
+    assert.deepEqual(res.unfunded.map((z) => z.id), ['z_2']);
+    assert.equal(res.totalSpent, 45_000);
+    assert.equal(res.unfunded[0].cost, 180_000);
+  });
+
+  it('scales shade-structure cost with bus-stop count', () => {
+    const zones = [makeZone('z_1', 'shade_structures', { assets: { busStops: 6 } })]; // 6 × 15k = 90k
+    const res = allocateBudget(zones, 100_000);
+    assert.equal(res.totalSpent, 90_000);
+    assert.equal(res.funded[0].cost, 90_000);
   });
 });

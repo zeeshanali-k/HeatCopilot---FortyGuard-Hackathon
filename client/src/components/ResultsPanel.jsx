@@ -12,6 +12,7 @@ import { scoreColor } from '../colors';
 import { allocateBudget } from '../api';
 import ZoneCard from './ZoneCard';
 import HistoryPanel from './HistoryPanel';
+import CostAssumptionsEditor from './CostAssumptionsEditor';
 
 const COST_TOOLTIP = 'Rough municipal unit-cost estimate — see the documented estimate table (server/src/costs.js)';
 
@@ -47,9 +48,12 @@ export default function ResultsPanel() {
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setAllocateStatus = useStore((s) => s.setAllocateStatus);
   const setAllocateError = useStore((s) => s.setAllocateError);
   const setAllocation = useStore((s) => s.setAllocation);
+  const costOverrides = useStore((s) => s.costOverrides);
+  const analysisDate = useStore((s) => s.analysisDate);
 
   const [budgetInput, setBudgetInput] = useState('');
   const [activeTab, setActiveTab] = useState('zones');
@@ -66,7 +70,7 @@ export default function ResultsPanel() {
     setAllocateStatus('processing');
     setAllocateError(null);
     try {
-      const data = await allocateBudget(aoi, { budgetUsd });
+      const data = await allocateBudget(aoi, { date: analysisDate, budgetUsd, costOverrides });
       // Keep the ranked list in sync with the optimization so the panel shows
       // exactly the zones the budget was allocated against.
       const rankedZones = [...(data.funded || []), ...(data.unfunded || [])];
@@ -260,6 +264,8 @@ export default function ResultsPanel() {
               )}
             </div>
           )}
+
+          <CostAssumptionsEditor />
         </div>
       )}
 
