@@ -6,23 +6,25 @@
  * exhausted. Pure function — no I/O, no external calls.
  */
 
-import { costForIntervention } from './costs.js';
+import { estimateZoneCost, cloneDefaultCosts } from './costs.js';
 
 /**
  * @param {object[]} rankedZones — zones sorted by priority score (desc),
- *   each with at least { id, intervention, stats }
+ *   each with at least { id, intervention, stats, assets }
  * @param {number} budgetUsd — total available budget in USD
+ * @param {object} [costs] — cost table (defaults used if omitted)
  * @returns {object} { funded, unfunded, totalSpent, budgetUsd }
  *   funded entries carry cost + runningTotal; unfunded entries are "next in
  *   line" when more budget is available.
  */
-export function allocateBudget(rankedZones, budgetUsd) {
+export function allocateBudget(rankedZones, budgetUsd, costs) {
+  const effectiveCosts = costs || cloneDefaultCosts();
   const funded = [];
   const unfunded = [];
   let totalSpent = 0;
 
   for (const zone of rankedZones || []) {
-    const cost = costForIntervention(zone.intervention);
+    const cost = estimateZoneCost(zone, effectiveCosts);
     if (cost != null && totalSpent + cost <= budgetUsd) {
       totalSpent += cost;
       funded.push({ ...zone, cost, runningTotal: totalSpent });

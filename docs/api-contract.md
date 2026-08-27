@@ -106,6 +106,13 @@ Response `200`:
       "geometry": { "type": "Polygon", "coordinates": [[]] },
       "score": 92,
       "breakdown": { "heat": 96, "duration": 88, "exposure": 74, "greenery": 91 },
+      "contributions": { "heat": 33.6, "duration": 22.0, "exposure": 14.8, "greenery": 21.6 },
+      "benefit": {
+        "dangerHoursAddressed": 8.2,
+        "assetsCovered": { "busStops": 6, "schools": 0, "parks": 0 },
+        "exposureComponent": 74,
+        "statement": "Tree planting and shade at 6 bus stops that currently endure 8.2 hrs/day of dangerous heat, in a zone whose public exposure ranks in the top decile of this area."
+      },
       "intervention": "tree_planting",
       "interventionLabel": "Tree planting + bus-stop shade",
       "reason": "Vegetation 9% (< 15% threshold) with open space present; 6 bus stops in top heat-duration decile.",
@@ -129,31 +136,50 @@ Response `200`:
 
 ## POST /api/allocate
 
-Budget optimizer. Reuses the `/api/prioritize` pipeline server-side, then greedily funds zones in priority order until the budget is exhausted. Unit costs are rough municipal estimates (see `server/src/costs.js`). No new external API calls.
+Budget optimizer. Reuses the `/api/prioritize` pipeline server-side, then greedily funds zones in priority order until the budget is exhausted. Unit costs are rough municipal estimates (see `server/src/costs.js`) and may be overridden per intervention. No new external API calls.
 
 Request:
 
 ```json
-{ "aoi": { "type": "Polygon", "coordinates": [[]] }, "date": "2026-07-15", "budgetUsd": 2000000 }
+{
+  "aoi": { "type": "Polygon", "coordinates": [[]] },
+  "date": "2026-07-15",
+  "budgetUsd": 2000000,
+  "costOverrides": {
+    "tree_planting": { "unitsPerZone": 200, "costPerUnitUsd": 900 },
+    "shade_structures": { "costPerUnitUsd": 18000 }
+  }
+}
 ```
+
+`costOverrides` is optional. Each key must be a known intervention (`tree_planting`, `shade_structures`, `cool_pavement`, `school_cooling`, `green_space`); `unitsPerZone` and `costPerUnitUsd` must be non-negative numbers.
 
 Response `200`:
 
 ```json
 {
   "funded": [
-    { "id": "z_1", "intervention": "shade_structures", "cost": 45000, "runningTotal": 45000, "...": "same zone shape as /api/prioritize" }
+    { "id": "z_1", "intervention": "shade_structures", "cost": 54000, "runningTotal": 54000, "...": "same zone shape as /api/prioritize" }
   ],
   "unfunded": [
     { "id": "z_2", "intervention": "green_space", "cost": 300000, "...": "next in line when more budget is available" }
   ],
-  "totalSpent": 1965000,
+  "totalSpent": 54000,
   "budgetUsd": 2000000,
-  "impact": { "zonesFunded": 21, "dangerHoursAddressed": 136.8 }
+  "impact": { "zonesFunded": 1, "dangerHoursAddressed": 8.2 },
+  "meta": {
+    "effectiveCosts": {
+      "tree_planting": { "unitLabel": "tree", "unitsPerZone": 200, "costPerUnitUsd": 900, "note": "planted + 3yr maintenance" },
+      "shade_structures": { "unitLabel": "shade structure", "unitsPerZone": 3, "costPerUnitUsd": 18000, "note": "bus-stop scale" },
+      "...": "..."
+    }
+  }
 }
 ```
 
-Errors: `422 invalid_budget` when `budgetUsd` is not a non-negative finite number; `422 invalid_aoi` as usual.
+`meta.effectiveCosts` echoes the exact cost table used for the allocation so the UI can display the assumptions that produced the result.
+
+Errors: `422 invalid_budget` when `budgetUsd` is not a non-negative finite number; `422 invalid_request` when `costOverrides` contains unknown keys or invalid numbers; `422 invalid_aoi` as usual.
 
 ---
 

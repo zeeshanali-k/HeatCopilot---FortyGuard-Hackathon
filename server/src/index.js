@@ -13,6 +13,7 @@ import { submitAndPoll } from './fortyguard.js';
 import { computePriorityScore } from './scoring.js';
 import { recommendIntervention } from './interventions.js';
 import { allocateBudget } from './allocate.js';
+import { validateCostOverrides, mergeCosts } from './costs.js';
 import { fetchOsmAssets, countAssetsInZone } from './osm.js';
 import { generateActionPlan } from './llm.js';
 import { logger } from './logger.js';
@@ -785,7 +786,7 @@ app.post('/api/prioritize', async (req, res, next) => {
 
 app.post('/api/allocate', async (req, res, next) => {
   try {
-    const { aoi, date = new Date().toISOString().slice(0, 10), budgetUsd } = req.body;
+    const { aoi, date = new Date().toISOString().slice(0, 10), budgetUsd, costOverrides } = req.body;
     validatePolygon(aoi);
     if (typeof budgetUsd !== 'number' || !Number.isFinite(budgetUsd) || budgetUsd < 0) {
       const err = new Error('budgetUsd must be a non-negative number');
@@ -794,19 +795,32 @@ app.post('/api/allocate', async (req, res, next) => {
       throw err;
     }
 
+    const validation = validateCostOverrides(costOverrides);
+    if (!validation.valid) {
+      const err = new Error(`Invalid costOverrides: ${validation.reason}`);
+      err.code = 'invalid_request';
+      err.status = 422;
+      throw err;
+    }
+
     // Reuse the prioritize pipeline server-side; allocation is pure
     // computation on the ranked zones, no new external calls.
     const { zones } = await computePrioritizedZones(aoi, date);
-    const result = allocateBudget(zones, budgetUsd);
+    const effectiveCosts = mergeCosts(costOverrides);
+    const result = allocateBudget(zones, budgetUsd, effectiveCosts);
 
     logger.info('POST /api/allocate completed', {
       budgetUsd,
       funded: result.funded.length,
       unfunded: result.unfunded.length,
       totalSpent: result.totalSpent,
+      hasCostOverrides: !!costOverrides,
     });
 
-    res.json(result);
+    res.json({
+      ...result,
+      meta: { effectiveCosts },
+    });
   } catch (err) {
     next(err);
   }
