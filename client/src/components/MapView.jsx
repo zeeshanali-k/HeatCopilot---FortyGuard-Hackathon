@@ -11,6 +11,7 @@ import useDrawArea from './map/useDrawArea';
 import AoiLayer from './map/AoiLayer';
 import HeatLayer from './map/HeatLayer';
 import DurationLayer from './map/DurationLayer';
+import DurationLegend from './map/DurationLegend';
 import HotspotMarkers from './map/HotspotMarkers';
 import HotspotPopup from './map/HotspotPopup';
 import ZoneLayer from './map/ZoneLayer';
@@ -60,6 +61,7 @@ export default function MapView() {
           <HistoryLayer map={map} />
         </>
       )}
+      {showDurationLayer && <DurationLegend />}
     </div>
   );
 }
