@@ -74,6 +74,7 @@ export default function SearchBox() {
         transform: 'translateX(-50%)',
         width: 360,
         zIndex: 10,
+        animation: `searchBoxFadeIn var(--dur-slow) var(--ease-out) both`,
       }}
     >
       <input

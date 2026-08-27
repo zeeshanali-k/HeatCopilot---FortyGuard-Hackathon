@@ -58,6 +58,7 @@ export default function ThemeToggle() {
         zIndex: 20,
         boxShadow: 'var(--shadow-sm)',
         transition: 'background 0.2s, color 0.2s, transform 0.15s',
+        animation: `fadeIn var(--dur-slow) var(--ease-out) both`,
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.background = 'var(--glass-bg-hover)';

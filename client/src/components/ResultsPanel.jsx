@@ -108,6 +108,7 @@ export default function ResultsPanel() {
         overflowY: 'auto',
         boxShadow: 'var(--glass-shadow)',
         color: 'var(--text-h)',
+        animation: `slideInRight var(--dur-slow) var(--ease-out) both`,
       }}
     >
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

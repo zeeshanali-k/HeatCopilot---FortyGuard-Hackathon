@@ -117,18 +117,22 @@ export default function FeaturePanel() {
     <div
       style={{
         position: 'absolute',
-        top: 80,
-        left: 16,
+        top: 0,
+        left: 0,
+        bottom: 0,
         width: 280,
-        borderRadius: 16,
+        borderRadius: '0 16px 16px 0',
         background: 'var(--glass-bg)',
         backdropFilter: 'blur(14px)',
         WebkitBackdropFilter: 'blur(14px)',
         border: '1px solid var(--glass-border)',
+        borderLeft: 'none',
         padding: 16,
         zIndex: 10,
         boxShadow: 'var(--glass-shadow)',
         color: 'var(--text-h)',
+        overflowY: 'auto',
+        animation: `slideInLeft var(--dur-slow) var(--ease-out) both`,
       }}
     >
       <div
