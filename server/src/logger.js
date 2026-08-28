@@ -14,11 +14,19 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const LOGS_DIR = join(__dirname, '..', 'logs');
 const LOG_FILE = join(LOGS_DIR, 'app.log');
 
-if (!existsSync(LOGS_DIR)) {
-  mkdirSync(LOGS_DIR, { recursive: true });
+// On serverless platforms (e.g. Vercel) the filesystem is read-only and
+// console output is captured by the platform — skip file logging there.
+let stream = null;
+if (!process.env.VERCEL) {
+  try {
+    if (!existsSync(LOGS_DIR)) {
+      mkdirSync(LOGS_DIR, { recursive: true });
+    }
+    stream = createWriteStream(LOG_FILE, { flags: 'a' });
+  } catch (err) {
+    console.warn(`File logging disabled (${err.message}); console only.`);
+  }
 }
-
-const stream = createWriteStream(LOG_FILE, { flags: 'a' });
 
 function now() {
   return new Date().toISOString();
@@ -31,7 +39,7 @@ function write(level, message, meta = {}) {
     message,
     ...meta,
   });
-  stream.write(`${line}\n`);
+  stream?.write(`${line}\n`);
 
   const metaStr = Object.keys(meta).length > 0 ? ' ' + JSON.stringify(meta) : '';
   if (level === 'error') {
