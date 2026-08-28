@@ -432,7 +432,7 @@ async function callLlm(prompt) {
       headers.Authorization = `Bearer ${apiKey}`;
     }
 
-    const res = await fetchImpl(`${baseUrl}/chat/completions`, {
+    const res = await fetchImpl(`${baseUrl}chat/completions`, {
       method: 'POST',
       headers,
       body: JSON.stringify({
