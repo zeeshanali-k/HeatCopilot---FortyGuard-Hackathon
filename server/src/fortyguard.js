@@ -1,9 +1,6 @@
 import fetch from 'node-fetch';
-import { writeFixture, isDemoMode } from './cache.js';
+import { writeFixture, isDemoMode, resolveDemoActivityId, readFixtureByKey } from './cache.js';
 import { logger } from './logger.js';
-
-const POLL_INTERVAL_MS = 5000;
-const MAX_POLL_MS = 10 * 60 * 1000;
 
 function getBaseUrl() {
   return readEnv('FORTYGUARD_BASE_URL', 'https://api.fortyguard.com');
@@ -31,10 +28,6 @@ function authHeaders() {
     'Content-Type': 'application/json',
     'api-key': key,
   };
-}
-
-async function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function toFeatureCollection(aoi) {
@@ -106,12 +99,21 @@ function toFortyGuardPayload(endpoint, payload, mode, granularity) {
   return upstream;
 }
 
-export async function submitAndPoll(endpoint, payload, { mode, granularity = 100 } = {}) {
+function parseActivityId(submitJson) {
+  return submitJson.data?.activity_id || submitJson.activity_id || submitJson.id;
+}
+
+export async function submitTask(endpoint, payload, { mode, granularity = 100 } = {}) {
   if (isDemoMode()) {
-    const err = new Error('DEMO_MODE=fixtures does not call upstream APIs');
-    err.code = 'cache_miss';
-    err.status = 404;
-    throw err;
+    const cachePayload = { ...payload, mode, granularity };
+    const activityId = resolveDemoActivityId(endpoint, cachePayload);
+    if (activityId === 'fixture:miss') {
+      const err = new Error('No fixture for this request in DEMO_MODE');
+      err.code = 'cache_miss';
+      err.status = 404;
+      throw err;
+    }
+    return { activityId };
   }
 
   const url = `${getBaseUrl()}${endpoint}`;
@@ -134,47 +136,61 @@ export async function submitAndPoll(endpoint, payload, { mode, granularity = 100
 
   const submitJson = await submitRes.json();
   logger.info('FortyGuard submit response', { endpoint, responseKeys: Object.keys(submitJson) });
-  const activityId = submitJson.data?.activity_id || submitJson.activity_id || submitJson.id;
+  const activityId = parseActivityId(submitJson);
   if (!activityId) {
     const err = new Error('FortyGuard response missing activity_id');
     err.code = 'upstream_error';
     err.status = 502;
     throw err;
   }
-  logger.info('FortyGuard polling started', { endpoint, activityId });
+  return { activityId };
+}
 
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < MAX_POLL_MS) {
-    await sleep(POLL_INTERVAL_MS);
-    const statusRes = await fetch(`${getBaseUrl()}/v1/status/${activityId}`, {
-      headers: authHeaders(),
-    });
-    if (!statusRes.ok) {
-      const text = await statusRes.text();
-      const err = new Error(`FortyGuard status failed: ${statusRes.status} ${text}`);
-      err.code = 'upstream_error';
-      err.status = 502;
+export async function fetchTaskStatus(activityId) {
+  if (activityId.startsWith('fixture:')) {
+    const key = activityId.slice('fixture:'.length);
+    if (!key || key === 'miss') {
+      const err = new Error('Fixture activity not found');
+      err.code = 'activity_not_found';
+      err.status = 404;
       throw err;
     }
-    const statusJson = await statusRes.json();
-    const task = statusJson.data || statusJson;
-    logger.debug('FortyGuard status poll', { endpoint, activityId, status: task.status || task.state, keys: Object.keys(task) });
-    if (task.status === 'Completed' || task.state === 'Completed') {
-      const result = task.result || task.data || task;
-      logger.info('FortyGuard completed', { endpoint, activityId, resultKeys: Object.keys(result || {}), nestedFeatureCount: result?.features?.length ?? result?.map_data?.features?.length ?? null });
-      writeFixture(endpoint, { ...payload, mode, granularity }, result);
-      return { activityId, result };
-    }
-    if (task.status === 'Failed' || task.state === 'Failed') {
-      const err = new Error(task.message || 'FortyGuard task failed');
-      err.code = 'upstream_error';
-      err.status = 502;
+    const fixture = readFixtureByKey(key);
+    if (!fixture) {
+      const err = new Error('Fixture activity not found');
+      err.code = 'activity_not_found';
+      err.status = 404;
       throw err;
     }
+    return { status: 'Completed', result: fixture.data };
   }
 
-  const err = new Error('FortyGuard task polling exceeded time budget');
-  err.code = 'upstream_timeout';
-  err.status = 504;
-  throw err;
+  const url = `${getBaseUrl()}/v1/status/${activityId}`;
+  logger.debug('FortyGuard status fetch', { activityId });
+
+  const statusRes = await fetch(url, { headers: authHeaders() });
+  if (!statusRes.ok) {
+    const text = await statusRes.text();
+    const err = new Error(`FortyGuard status failed: ${statusRes.status} ${text}`);
+    err.code = statusRes.status === 404 ? 'activity_not_found' : 'upstream_error';
+    err.status = statusRes.status === 404 ? 404 : 502;
+    throw err;
+  }
+
+  const statusJson = await statusRes.json();
+  const task = statusJson.data || statusJson;
+  const status = task.status || task.state;
+  logger.debug('FortyGuard status response', { activityId, status, keys: Object.keys(task) });
+
+  if (status === 'Completed') {
+    const result = task.result || task.data || task;
+    return { status: 'Completed', result };
+  }
+  if (status === 'Failed') {
+    const err = new Error(task.message || 'FortyGuard task failed');
+    err.code = 'upstream_error';
+    err.status = 502;
+    throw err;
+  }
+  return { status: status || 'Processing' };
 }

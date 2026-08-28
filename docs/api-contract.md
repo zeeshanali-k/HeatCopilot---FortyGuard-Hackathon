@@ -27,7 +27,7 @@ Response `200`:
 
 ## POST /api/hotspots
 
-Triggers the "Find Hotspots" feature: heatmap (`tcm`) over the AOI, clustered into hotspot markers.
+Submits the "Find Hotspots" heatmap (`tcm`) task and returns an `activityId` the client polls for status. The full result moves to the status route.
 
 Request:
 
@@ -42,29 +42,16 @@ Request:
 Response `200`:
 
 ```json
-{
-  "markers": [
-    {
-      "id": "hs_1",
-      "lat": 33.4512,
-      "lon": -112.0534,
-      "label": "Downtown core",
-      "tempMean": 43.1,
-      "tempMax": 47.8,
-      "peakHour": 15,
-      "durationHrs": 8.2
-    }
-  ],
-  "heatTiles": { "type": "FeatureCollection", "features": [] },
-  "meta": { "activityId": "uuid", "fromCache": true, "granularity": 100 }
-}
+{ "activityId": "live:abc123...", "status": "Processing" }
 ```
 
-Notes: `heatTiles.features[].properties.temperature` (°C) drives the overlay color. `durationHrs`/`peakHour` come from companion `persistence`/`time_of_measure` calls when cached, else null.
+In `DEMO_MODE=fixtures` the activity id is `fixture:<key>` and the first status poll returns `Completed`.
 
 ---
 
 ## POST /api/duration
+
+Submits the heatmap task used for heat-duration analysis. The client polls the status route with `?endpoint=duration` to receive processed zones.
 
 Request:
 
@@ -75,24 +62,119 @@ Request:
 Response `200`:
 
 ```json
+{ "activityId": "live:abc123...", "status": "Processing" }
+```
+
+---
+
+## GET /api/status/:activityId
+
+Poll the status of an upstream FortyGuard task. Each invocation performs a single quick upstream status call (or fixture lookup) and returns immediately.
+
+Query params:
+
+- `endpoint` (optional): `heatmap` | `duration`. When provided and the task is `Completed`, the server runs the endpoint-specific result processor and returns the processed shape the UI consumes.
+
+Responses:
+
+`200` while processing:
+
+```json
+{ "status": "Processing" }
+```
+
+`200` on completed (heatmap):
+
+```json
 {
-  "zones": [
-    { "id": "z_1", "lat": 33.4512, "lon": -112.0534, "exceedHours": 11, "longestStreakHrs": 8.2 }
-  ],
-  "meta": { "thresholdC": 38, "fromCache": true }
+  "status": "Completed",
+  "result": {
+    "markers": [ { "id": "hs_1", "lat": 33.4512, "lon": -112.0534, "label": "Downtown core", "tempMean": 43.1, "tempMax": 47.8, "peakHour": 15, "durationHrs": 8.2 } ],
+    "heatTiles": { "type": "FeatureCollection", "features": [] },
+    "meta": { "activityId": "...", "fromCache": true, "granularity": 100 }
+  }
 }
 ```
+
+`200` on completed (duration):
+
+```json
+{
+  "status": "Completed",
+  "result": {
+    "zones": [ { "id": "z_1", "lat": 33.4512, "lon": -112.0534, "exceedHours": 11, "longestStreakHrs": 8.2 } ],
+    "heatTiles": { "type": "FeatureCollection", "features": [] },
+    "meta": { "thresholdC": 38, "fromCache": true, "zoneCount": 1 }
+  }
+}
+```
+
+`200` on failed:
+
+```json
+{ "status": "Failed", "message": "..." }
+```
+
+Errors: `404 activity_not_found` (unknown/expired id), `502 upstream_error`.
 
 ---
 
 ## POST /api/prioritize
 
-Full pipeline: grid AOI into ~500 m zones → heat + duration + exposure + greenery → score → intervention. Zones returned ranked by score, descending.
+Retained as a thin alias for submitting the first stage (heatmap) of the prioritize pipeline. Returns an activity id for polling.
 
 Request:
 
 ```json
 { "aoi": { "type": "Polygon", "coordinates": [[]] }, "date": "2026-07-15" }
+```
+
+Response `200`:
+
+```json
+{ "activityId": "live:abc123...", "status": "Processing" }
+```
+
+---
+
+## POST /api/tasks
+
+Generic upstream task submission. Used by the client to submit additional pipeline stages such as `/v1/env_params` and `/v1/satellite_segmentation`.
+
+Request:
+
+```json
+{
+  "endpoint": "/v1/env_params",
+  "payload": { "latitude": 33.45, "longitude": -112.05, "temperature": 43, "date": "2026-07-15" },
+  "options": {}
+}
+```
+
+Response `200`:
+
+```json
+{ "activityId": "live:abc123...", "status": "Processing" }
+```
+
+---
+
+## POST /api/prioritize/score
+
+Final synchronous scoring stage. Takes the collected upstream stage results and runs grid generation, OSM asset fetch, scoring, intervention selection, and benefit estimation. No long upstream polling.
+
+Request:
+
+```json
+{
+  "aoi": { "type": "Polygon", "coordinates": [[]] },
+  "date": "2026-07-15",
+  "stageResults": {
+    "heatmap": { /* raw FortyGuard heatmap result */ },
+    "env_params": { "wet_bulb_max": 29.4 },
+    "segmentation": { "vegetation_pct": 9 }
+  }
+}
 ```
 
 Response `200`:
@@ -227,8 +309,9 @@ Response `200`:
 | Code | HTTP | Meaning |
 |---|---|---|
 | `cache_miss` | 404 | DEMO_MODE=fixtures and no fixture exists for this request |
+| `activity_not_found` | 404 | Unknown or expired `activityId` (passes through FortyGuard 404) |
 | `invalid_aoi` | 422 | Polygon missing, not closed, or outside US bounds |
 | `aoi_too_large` | 422 | AOI exceeds plan area cap — client must shrink or chunk |
 | `upstream_error` | 502 | FortyGuard/OSM/LLM call failed |
-| `upstream_timeout` | 504 | Polling exceeded the time budget |
+| `upstream_timeout` | 504 | Client-side polling exceeded the 10-minute budget |
 | `not_configured` | 500 | Missing API key in server env |

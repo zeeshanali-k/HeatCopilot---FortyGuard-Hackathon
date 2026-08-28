@@ -9,7 +9,7 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useStore } from '../../state';
-import { prioritizeZones } from '../../api';
+import { usePrioritizePipeline } from '../../hooks/usePrioritizePipeline';
 import { formatHour } from './mapUtils';
 
 const DEMO_DATE = '2026-07-15';
@@ -50,15 +50,81 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const hotspots = useStore((s) => s.hotspots);
   const durationZones = useStore((s) => s.durationZones);
 
+  // Stash values that change often in refs so the popup DOM isn't recreated
+  // every time the surrounding store updates.
+  const selectedHotspotRef = useRef(selectedHotspot);
+  const mapRef = useRef(map);
+  const hotspotsRef = useRef(hotspots);
+  const durationZonesRef = useRef(durationZones);
+
+  const { run } = usePrioritizePipeline({
+    onCompleted: ({ zones }) => {
+      const hotspot = selectedHotspotRef.current;
+      if (!hotspot) return;
+      const ranked = zones || [];
+      const nearest = ranked.length > 0
+        ? ranked
+          .map((z) => ({
+            zone: z,
+            dist: Math.hypot(z.center.lon - hotspot.lon, z.center.lat - hotspot.lat),
+          }))
+          .sort((a, b) => a.dist - b.dist)[0].zone
+        : null;
+      setPrioritizeZones(ranked);
+      setShowResultsPanel(true);
+      setSelectedZone(nearest);
+      setPrioritizeStatus('completed');
+      saveToHistory({
+        aoi: bufferPolygon(hotspot.lon, hotspot.lat),
+        aoiMode,
+        date: DEMO_DATE,
+        hotspots: hotspotsRef.current,
+        duration: durationZonesRef.current,
+        zones: ranked,
+        fromCache: false,
+      });
+      if (nearest && mapRef.current) {
+        mapRef.current.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
+      }
+      popupRef.current?.remove();
+    },
+    onFailed: (err) => {
+      console.error(err);
+      setPrioritizeError(err);
+      setPrioritizeStatus('error');
+      const btn = popupRef.current?.getElement()?.querySelector('.popup-action-btn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Analyze this zone';
+      }
+    },
+  });
+
+  // Keep the latest run function in a ref so the effect doesn't re-run when
+  // the pipeline callbacks change identity.
+  const runRef = useRef(run);
+
   useEffect(() => {
-    if (!map) return;
+    selectedHotspotRef.current = selectedHotspot;
+    mapRef.current = map;
+    hotspotsRef.current = hotspots;
+    durationZonesRef.current = durationZones;
+    runRef.current = run;
+  });
+
+  useEffect(() => {
+    if (!map || !selectedHotspot) {
+      if (popupRef.current) {
+        popupRef.current.remove();
+        popupRef.current = null;
+      }
+      return;
+    }
 
     if (popupRef.current) {
       popupRef.current.remove();
       popupRef.current = null;
     }
-
-    if (!selectedHotspot) return;
 
     const thresholdLabel = `${thresholdC}°C`;
     const popupContent = document.createElement('div');
@@ -75,16 +141,6 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
       <div style="margin-top:6px;font-size:11px;color:var(--text-l);text-align:center;" title="FortyGuard heatmap, ${DEMO_DATE} ${DEMO_HOUR}, 100m, threshold ${thresholdLabel}">Source: FortyGuard heatmap · threshold ${thresholdLabel}</div>
     `;
 
-    function findNearestZone(zones, lon, lat) {
-      if (!zones || zones.length === 0) return null;
-      return zones
-        .map((z) => ({
-          zone: z,
-          dist: Math.hypot(z.center.lon - lon, z.center.lat - lat),
-        }))
-        .sort((a, b) => a.dist - b.dist)[0].zone;
-    }
-
     const btn = popupContent.querySelector('.popup-action-btn');
     btn.addEventListener('click', async () => {
       btn.disabled = true;
@@ -94,32 +150,9 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
 
       try {
         const aoi = bufferPolygon(selectedHotspot.lon, selectedHotspot.lat);
-        const data = await prioritizeZones(aoi, { date: DEMO_DATE });
-        const ranked = data.zones || [];
-        const nearest = findNearestZone(ranked, selectedHotspot.lon, selectedHotspot.lat);
-        setPrioritizeZones(ranked);
-        setShowResultsPanel(true);
-        setSelectedZone(nearest);
-        setPrioritizeStatus('completed');
-        saveToHistory({
-          aoi,
-          aoiMode,
-          date: DEMO_DATE,
-          hotspots,
-          duration: durationZones,
-          zones: ranked,
-          fromCache: data.meta?.fromCache,
-        });
-        if (nearest && map) {
-          map.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
-        }
-        popupRef.current?.remove();
-      } catch (err) {
-        console.error(err);
-        setPrioritizeError(err);
-        setPrioritizeStatus('error');
-        btn.disabled = false;
-        btn.textContent = 'Analyze this zone';
+        await runRef.current(aoi, DEMO_DATE);
+      } catch {
+        // Error handling is done in onFailed callback.
       }
     });
 
@@ -138,21 +171,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         popupRef.current = null;
       }
     };
-  }, [
-    map,
-    selectedHotspot,
-    onClose,
-    thresholdC,
-    setPrioritizeStatus,
-    setPrioritizeError,
-    setPrioritizeZones,
-    setSelectedZone,
-    setShowResultsPanel,
-    saveToHistory,
-    aoiMode,
-    hotspots,
-    durationZones,
-  ]);
+  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError]);
 
   return null;
 }

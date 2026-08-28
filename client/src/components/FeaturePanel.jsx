@@ -7,9 +7,10 @@
  * displays progress, errors, and summary counts.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state';
-import { findHotspots, fetchDuration } from '../api';
+import { submitFindHotspots, submitHeatDuration } from '../api';
+import { usePollStatus } from '../hooks/usePollStatus';
 
 const DEMO_DATE = '2026-07-15';
 const DEMO_HOUR = '14:00';
@@ -53,19 +54,48 @@ export default function FeaturePanel() {
   const setDurationThresholdC = useStore((s) => s.setDurationThresholdC);
   const setShowDurationLayer = useStore((s) => s.setShowDurationLayer);
 
-  const timerRef = useRef(null);
+  const [hotspotActivityId, setHotspotActivityId] = useState(null);
+  const [durationActivityId, setDurationActivityId] = useState(null);
+
   const startRef = useRef(0);
+
+  const hotspotPoll = usePollStatus({
+    activityId: hotspotActivityId,
+    endpoint: 'heatmap',
+    onCompleted: (result) => {
+      setHotspots(result.markers);
+      setHeatTiles(result.heatTiles);
+      setAnalysisStatus('completed');
+    },
+    onFailed: (err) => {
+      setAnalysisError(err);
+      setAnalysisStatus('error');
+    },
+  });
+
+  usePollStatus({
+    activityId: durationActivityId,
+    endpoint: 'duration',
+    onCompleted: (result) => {
+      setDurationZones(result.zones);
+      setDurationTiles(result.heatTiles);
+      setShowDurationLayer(true);
+      setDurationStatus('completed');
+    },
+    onFailed: (err) => {
+      setDurationError(err);
+      setDurationStatus('error');
+    },
+  });
 
   useEffect(() => {
     if (analysisStatus === 'submitted' || analysisStatus === 'processing') {
       startRef.current = Date.now();
-      timerRef.current = setInterval(() => {
+      const timer = setInterval(() => {
         setAnalysisElapsed(Math.round((Date.now() - startRef.current) / 1000));
       }, 1000);
-    } else {
-      clearInterval(timerRef.current);
+      return () => clearInterval(timer);
     }
-    return () => clearInterval(timerRef.current);
   }, [analysisStatus, setAnalysisElapsed]);
 
   async function handleFindHotspots() {
@@ -74,13 +104,12 @@ export default function FeaturePanel() {
     setAnalysisError(null);
     setAnalysisElapsed(0);
     setSelectedHotspot(null);
+    setHotspotActivityId(null);
 
     try {
+      const { activityId } = await submitFindHotspots(aoi, { date: DEMO_DATE, hour: DEMO_HOUR });
       setAnalysisStatus('processing');
-      const data = await findHotspots(aoi, { date: DEMO_DATE, hour: DEMO_HOUR });
-      setHotspots(data.markers);
-      setHeatTiles(data.heatTiles);
-      setAnalysisStatus('completed');
+      setHotspotActivityId(activityId);
     } catch (err) {
       console.error(err);
       setAnalysisError(err);
@@ -93,14 +122,12 @@ export default function FeaturePanel() {
     setDurationStatus('submitted');
     setDurationError(null);
     setSelectedHotspot(null);
+    setDurationActivityId(null);
 
     try {
+      const { activityId } = await submitHeatDuration(aoi, { date: DEMO_DATE, thresholdC: durationThresholdC });
       setDurationStatus('processing');
-      const data = await fetchDuration(aoi, { date: DEMO_DATE, thresholdC: durationThresholdC });
-      setDurationZones(data.zones);
-      setDurationTiles(data.heatTiles);
-      setShowDurationLayer(true);
-      setDurationStatus('completed');
+      setDurationActivityId(activityId);
     } catch (err) {
       console.error(err);
       setDurationError(err);
@@ -411,6 +438,11 @@ export default function FeaturePanel() {
                   />
                   <div style={{ flex: 1, color: isActive || isDone ? 'var(--text-h)' : 'var(--text-l)', fontSize: 13 }}>
                     {step.label}
+                    {isActive && hotspotPoll.status && hotspotPoll.status !== 'Processing' && (
+                      <span style={{ marginLeft: 6, color: 'var(--text-l)', fontSize: 11 }}>
+                        ({hotspotPoll.status})
+                      </span>
+                    )}
                   </div>
                   {isActive && (
                     <div style={{ color: 'var(--text-l)', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>

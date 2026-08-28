@@ -101,6 +101,10 @@ function clipToAoi(geojson, aoi) {
 
 export function readFixture(endpoint, payload) {
   const key = cacheKey(endpoint, payload);
+  return readFixtureByKey(key);
+}
+
+export function readFixtureByKey(key) {
   const path = fixturePath(key);
   if (!existsSync(path)) return null;
   try {
@@ -167,6 +171,16 @@ export function loadOrFail(endpoint, payload) {
     throw error;
   }
   return null;
+}
+
+export function resolveDemoActivityId(endpoint, payload) {
+  const cached = readFixture(endpoint, payload);
+  if (cached) return `fixture:${cached.key}`;
+
+  const fallback = tryDemoFallback(endpoint, payload);
+  if (fallback) return `fixture:${fallback.key}`;
+
+  return 'fixture:miss';
 }
 
 export function isDemoMode() {

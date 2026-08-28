@@ -6,14 +6,17 @@
  * and deleting entries.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore, HISTORY_PALETTE } from '../state';
-import { prioritizeZones } from '../api';
+import { usePrioritizePipeline } from '../hooks/usePrioritizePipeline';
 import { scoreColor } from '../colors';
 
 const steps = [
   { key: 'submitted', label: 'Submitted' },
-  { key: 'processing', label: 'Processing' },
+  { key: 'heatmap', label: 'Heatmap' },
+  { key: 'environment', label: 'Environment' },
+  { key: 'segmentation', label: 'Segmentation' },
+  { key: 'scoring', label: 'Scoring' },
   { key: 'completed', label: 'Completed' },
 ];
 
@@ -55,6 +58,38 @@ export default function HistoryPanel() {
   const flashHistoryScores = useStore((s) => s.flashHistoryScores);
 
   const [maxHintId, setMaxHintId] = useState(null);
+  const rerunEntryRef = useRef(null);
+
+  const { run: runPrioritize } = usePrioritizePipeline({
+    onStage: (stage) => {
+      const entry = rerunEntryRef.current;
+      if (!entry) return;
+      setHistoryEntryRerun(entry.id, { status: stage });
+    },
+    onCompleted: async ({ zones }) => {
+      const entry = rerunEntryRef.current;
+      if (!entry) return;
+      await saveToHistory({
+        aoi: entry.aoi,
+        aoiMode: entry.aoiMode,
+        date: entry.date,
+        hotspots: entry.hotspots,
+        duration: entry.duration,
+        zones: zones || [],
+        fromCache: false,
+      });
+      clearHistoryRerun(entry.id);
+      flashHistoryScores(entry.id);
+      rerunEntryRef.current = null;
+    },
+    onFailed: (err) => {
+      const entry = rerunEntryRef.current;
+      if (!entry) return;
+      console.error(err);
+      setHistoryEntryRerun(entry.id, { status: 'error', error: err });
+      rerunEntryRef.current = null;
+    },
+  });
 
   function handleToggle(id) {
     const state = history.find((h) => h.id === id);
@@ -73,24 +108,12 @@ export default function HistoryPanel() {
     e.stopPropagation();
     setHistoryEntryRerun(entry.id, { status: 'submitted' });
     loadHistoryEntry(entry.id);
+    rerunEntryRef.current = entry;
 
     try {
-      setHistoryEntryRerun(entry.id, { status: 'processing' });
-      const data = await prioritizeZones(entry.aoi, { date: entry.date });
-      await saveToHistory({
-        aoi: entry.aoi,
-        aoiMode: entry.aoiMode,
-        date: entry.date,
-        hotspots: entry.hotspots,
-        duration: entry.duration,
-        zones: data.zones || [],
-        fromCache: data.meta?.fromCache,
-      });
-      clearHistoryRerun(entry.id);
-      flashHistoryScores(entry.id);
-    } catch (err) {
-      console.error(err);
-      setHistoryEntryRerun(entry.id, { status: 'error', error: err });
+      await runPrioritize(entry.aoi, entry.date);
+    } catch {
+      // Error handling is done in the onFailed callback.
     }
   }
 
