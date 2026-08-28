@@ -5,7 +5,9 @@
  * calls go through the backend so API keys stay server-side.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001';
+// Backend base URL. Defaults to the local dev server; set VITE_API_BASE on the
+// deployed frontend (e.g. https://your-backend.vercel.app).
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:3001').replace(/\/+$/, '');
 
 async function post(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {

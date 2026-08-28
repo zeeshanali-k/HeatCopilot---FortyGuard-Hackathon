@@ -16,7 +16,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const FIXTURES_DIR = join(__dirname, '..', 'fixtures');
 
 if (!existsSync(FIXTURES_DIR)) {
-  mkdirSync(FIXTURES_DIR, { recursive: true });
+  try {
+    mkdirSync(FIXTURES_DIR, { recursive: true });
+  } catch (err) {
+    // Read-only filesystem (e.g. Vercel serverless): bundled fixtures are
+    // served read-only and cache writes are skipped by writeFixture's guard.
+    console.warn(`Fixtures dir unavailable (${err.message}); running read-only.`);
+  }
 }
 
 // Master Phoenix demo AOI: ~18 km × ~22 km around downtown.

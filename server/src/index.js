@@ -851,6 +851,12 @@ app.use((err, _req, res, _next) => {
   res.status(status).json({ error: err.message, code });
 });
 
-app.listen(PORT, () => {
-  console.log(`HeatCopilot server listening on http://localhost:${PORT} (DEMO_MODE=${isDemoMode() ? 'fixtures' : 'live'})`);
-});
+// On Vercel the app is imported as a serverless handler (see /api/index.js);
+// only listen on a port when running locally.
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`HeatCopilot server listening on http://localhost:${PORT} (DEMO_MODE=${isDemoMode() ? 'fixtures' : 'live'})`);
+  });
+}
+
+export default app;
