@@ -3,7 +3,7 @@
  *
  * Right-hand ranked list of prioritized zones. Hidden until the first
  * prioritize analysis completes. Clicking a row flies the map to the zone and
- * opens the ZoneCard.
+ * opens the ZoneCard (without switching to the unrelated hotspot marker).
  */
 
 import { useState } from 'react';
@@ -22,21 +22,10 @@ function formatUsd(n) {
   return `$${n}`;
 }
 
-function findNearestHotspot(hotspots, lon, lat) {
-  if (!hotspots || hotspots.length === 0) return null;
-  return hotspots
-    .map((h) => ({
-      hotspot: h,
-      dist: Math.hypot(h.lon - lon, h.lat - lat),
-    }))
-    .sort((a, b) => a.dist - b.dist)[0].hotspot;
-}
-
 export default function ResultsPanel() {
   const map = useStore((s) => s.mapRef);
   const aoi = useStore((s) => s.aoi);
   const zones = useStore((s) => s.prioritizeZones);
-  const hotspots = useStore((s) => s.hotspots);
   const status = useStore((s) => s.prioritizeStatus);
   const error = useStore((s) => s.prioritizeError);
   const show = useStore((s) => s.showResultsPanel);
@@ -46,7 +35,6 @@ export default function ResultsPanel() {
   const allocation = useStore((s) => s.allocation);
 
   const setSelectedZone = useStore((s) => s.setSelectedZone);
-  const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setAllocateStatus = useStore((s) => s.setAllocateStatus);
@@ -88,14 +76,7 @@ export default function ResultsPanel() {
 
   function handleSelect(zone) {
     setSelectedZone(zone);
-
-    const nearest = findNearestHotspot(hotspots, zone.center.lon, zone.center.lat);
-    if (nearest) {
-      setSelectedHotspot(nearest);
-      if (map) {
-        map.flyTo({ center: [nearest.lon, nearest.lat], zoom: 15, essential: true });
-      }
-    } else if (map) {
+    if (map) {
       map.flyTo({ center: [zone.center.lon, zone.center.lat], zoom: 15, essential: true });
     }
   }

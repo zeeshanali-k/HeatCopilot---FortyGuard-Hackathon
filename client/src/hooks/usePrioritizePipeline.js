@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { submitPrioritizeStage, submitGenericTask, scorePrioritizedZones } from '../api';
 
 const POLL_INTERVAL_MS = 5000;
@@ -75,13 +75,19 @@ function heatmapMaxTemperature(heatmapResult) {
   return Number.isFinite(max) ? max : null;
 }
 
-export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
+export function usePrioritizePipeline({ onStage } = {}) {
   const [status, setStatus] = useState('idle');
   const [stage, setStage] = useState(null);
   const [error, setError] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const runningRef = useRef(false);
   const elapsedTimerRef = useRef(null);
+  const onStageRef = useRef(onStage);
+
+  // Keep the stage callback fresh without restarting the run function.
+  useEffect(() => {
+    onStageRef.current = onStage;
+  });
 
   const stop = useCallback(() => {
     runningRef.current = false;
@@ -93,7 +99,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
     runningRef.current = true;
     setStatus('processing');
     setStage('heatmap');
-    onStage?.('heatmap');
+    onStageRef.current?.('heatmap');
     setError(null);
     setElapsedSeconds(0);
 
@@ -109,7 +115,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         onStatus: (s) => {
           const stageName = s === 'Completed' ? 'heatmap' : 'heatmap';
           setStage(stageName);
-          onStage?.(stageName);
+          onStageRef.current?.(stageName);
         },
         shouldStop: () => !runningRef.current,
       });
@@ -119,7 +125,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
       const representativeTemp = heatmapMaxTemperature(heatmapResult) || 40;
 
       setStage('environment');
-      onStage?.('environment');
+      onStageRef.current?.('environment');
       const envPromise = submitGenericTask('/v1/env_params', {
         aoi,
         date,
@@ -130,7 +136,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         .then(({ activityId }) => pollToCompletion(activityId, null, {
           onStatus: () => {
             setStage('environment');
-            onStage?.('environment');
+            onStageRef.current?.('environment');
           },
           shouldStop: () => !runningRef.current,
         }))
@@ -140,7 +146,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         });
 
       setStage('segmentation');
-      onStage?.('segmentation');
+      onStageRef.current?.('segmentation');
       const segPromise = submitGenericTask('/v1/satellite_segmentation', {
         aoi,
         date,
@@ -150,7 +156,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         .then(({ activityId }) => pollToCompletion(activityId, null, {
           onStatus: () => {
             setStage('segmentation');
-            onStage?.('segmentation');
+            onStageRef.current?.('segmentation');
           },
           shouldStop: () => !runningRef.current,
         }))
@@ -163,7 +169,7 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
 
       // Stage 3: scoring
       setStage('scoring');
-      onStage?.('scoring');
+      onStageRef.current?.('scoring');
       const { zones, meta } = await scorePrioritizedZones(aoi, date, {
         heatmap: heatmapResult,
         env_params: envResult,
@@ -172,16 +178,14 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
 
       stop();
       setStatus('completed');
-      onCompleted?.({ zones, meta });
       return { zones, meta };
     } catch (err) {
       stop();
       setError(err);
       setStatus('error');
-      onFailed?.(err);
       throw err;
     }
-  }, [onCompleted, onFailed, onStage, stop]);
+  }, [stop]);
 
   return { status, stage, error, elapsedSeconds, run, stop };
 }

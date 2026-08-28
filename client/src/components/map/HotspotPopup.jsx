@@ -57,48 +57,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const hotspotsRef = useRef(hotspots);
   const durationZonesRef = useRef(durationZones);
 
-  const { run } = usePrioritizePipeline({
-    onCompleted: ({ zones }) => {
-      const hotspot = selectedHotspotRef.current;
-      if (!hotspot) return;
-      const ranked = zones || [];
-      const nearest = ranked.length > 0
-        ? ranked
-          .map((z) => ({
-            zone: z,
-            dist: Math.hypot(z.center.lon - hotspot.lon, z.center.lat - hotspot.lat),
-          }))
-          .sort((a, b) => a.dist - b.dist)[0].zone
-        : null;
-      setPrioritizeZones(ranked);
-      setShowResultsPanel(true);
-      setSelectedZone(nearest);
-      setPrioritizeStatus('completed');
-      saveToHistory({
-        aoi: bufferPolygon(hotspot.lon, hotspot.lat),
-        aoiMode,
-        date: DEMO_DATE,
-        hotspots: hotspotsRef.current,
-        duration: durationZonesRef.current,
-        zones: ranked,
-        fromCache: false,
-      });
-      if (nearest && mapRef.current) {
-        mapRef.current.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
-      }
-      popupRef.current?.remove();
-    },
-    onFailed: (err) => {
-      console.error(err);
-      setPrioritizeError(err);
-      setPrioritizeStatus('error');
-      const btn = popupRef.current?.getElement()?.querySelector('.popup-action-btn');
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = 'Analyze this zone';
-      }
-    },
-  });
+  const { run } = usePrioritizePipeline();
 
   // Keep the latest run function in a ref so the effect doesn't re-run when
   // the pipeline callbacks change identity.
@@ -126,16 +85,17 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
       popupRef.current = null;
     }
 
+    const hotspot = selectedHotspot;
     const thresholdLabel = `${thresholdC}°C`;
     const popupContent = document.createElement('div');
     popupContent.className = 'hotspot-popup';
     popupContent.innerHTML = `
-      <div style="font-weight:600;font-size:15px;margin-bottom:8px;color:var(--text-h);">${selectedHotspot.label}</div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:8px;color:var(--text-h);">${hotspot.label}</div>
       <div style="display:grid;grid-template-columns:1fr auto;gap:8px 16px;font-size:13px;color:var(--text-m);">
-        <div>Mean temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${selectedHotspot.tempMean}°C</div>
-        <div>Max temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${selectedHotspot.tempMax}°C</div>
-        <div>Peak hour</div><div style="text-align:right;color:var(--text-h);">${formatHour(selectedHotspot.peakHour)}</div>
-        <div>Danger duration (hrs)</div><div style="text-align:right;color:var(--text-h);">${selectedHotspot.durationHrs ?? '--'}</div>
+        <div>Mean temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${hotspot.tempMean}°C</div>
+        <div>Max temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${hotspot.tempMax}°C</div>
+        <div>Peak hour</div><div style="text-align:right;color:var(--text-h);">${formatHour(hotspot.peakHour)}</div>
+        <div>Danger duration (hrs)</div><div style="text-align:right;color:var(--text-h);">${hotspot.durationHrs ?? '--'}</div>
       </div>
       <button class="popup-action-btn" style="margin-top:12px;width:100%;">Analyze this zone</button>
       <div style="margin-top:6px;font-size:11px;color:var(--text-l);text-align:center;" title="FortyGuard heatmap, ${DEMO_DATE} ${DEMO_HOUR}, 100m, threshold ${thresholdLabel}">Source: FortyGuard heatmap · threshold ${thresholdLabel}</div>
@@ -149,15 +109,45 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
       setPrioritizeError(null);
 
       try {
-        const aoi = bufferPolygon(selectedHotspot.lon, selectedHotspot.lat);
-        await runRef.current(aoi, DEMO_DATE);
-      } catch {
-        // Error handling is done in onFailed callback.
+        const aoi = bufferPolygon(hotspot.lon, hotspot.lat);
+        const { zones } = await runRef.current(aoi, DEMO_DATE);
+        const ranked = zones || [];
+        const nearest = ranked.length > 0
+          ? ranked
+            .map((z) => ({
+              zone: z,
+              dist: Math.hypot(z.center.lon - hotspot.lon, z.center.lat - hotspot.lat),
+            }))
+            .sort((a, b) => a.d - b.dist)[0].zone
+          : null;
+        setPrioritizeZones(ranked);
+        setShowResultsPanel(true);
+        setSelectedZone(nearest);
+        setPrioritizeStatus('completed');
+        saveToHistory({
+          aoi,
+          aoiMode,
+          date: DEMO_DATE,
+          hotspots: hotspotsRef.current,
+          duration: durationZonesRef.current,
+          zones: ranked,
+          fromCache: false,
+        });
+        if (nearest && mapRef.current) {
+          mapRef.current.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
+        }
+        popupRef.current?.remove();
+      } catch (err) {
+        console.error('Analyze zone failed:', err);
+        setPrioritizeError(err);
+        setPrioritizeStatus('error');
+        btn.disabled = false;
+        btn.textContent = 'Analyze this zone';
       }
     });
 
     popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' })
-      .setLngLat([selectedHotspot.lon, selectedHotspot.lat])
+      .setLngLat([hotspot.lon, hotspot.lat])
       .setDOMContent(popupContent)
       .addTo(map);
 
@@ -171,7 +161,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         popupRef.current = null;
       }
     };
-  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError]);
+  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setSelectedZone, setShowResultsPanel, saveToHistory, aoiMode]);
 
   return null;
 }

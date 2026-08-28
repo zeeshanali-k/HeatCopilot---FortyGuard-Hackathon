@@ -66,29 +66,6 @@ export default function HistoryPanel() {
       if (!entry) return;
       setHistoryEntryRerun(entry.id, { status: stage });
     },
-    onCompleted: async ({ zones }) => {
-      const entry = rerunEntryRef.current;
-      if (!entry) return;
-      await saveToHistory({
-        aoi: entry.aoi,
-        aoiMode: entry.aoiMode,
-        date: entry.date,
-        hotspots: entry.hotspots,
-        duration: entry.duration,
-        zones: zones || [],
-        fromCache: false,
-      });
-      clearHistoryRerun(entry.id);
-      flashHistoryScores(entry.id);
-      rerunEntryRef.current = null;
-    },
-    onFailed: (err) => {
-      const entry = rerunEntryRef.current;
-      if (!entry) return;
-      console.error(err);
-      setHistoryEntryRerun(entry.id, { status: 'error', error: err });
-      rerunEntryRef.current = null;
-    },
   });
 
   function handleToggle(id) {
@@ -111,9 +88,23 @@ export default function HistoryPanel() {
     rerunEntryRef.current = entry;
 
     try {
-      await runPrioritize(entry.aoi, entry.date);
-    } catch {
-      // Error handling is done in the onFailed callback.
+      const { zones } = await runPrioritize(entry.aoi, entry.date);
+      await saveToHistory({
+        aoi: entry.aoi,
+        aoiMode: entry.aoiMode,
+        date: entry.date,
+        hotspots: entry.hotspots,
+        duration: entry.duration,
+        zones: zones || [],
+        fromCache: false,
+      });
+      clearHistoryRerun(entry.id);
+      flashHistoryScores(entry.id);
+    } catch (err) {
+      console.error(err);
+      setHistoryEntryRerun(entry.id, { status: 'error', error: err });
+    } finally {
+      rerunEntryRef.current = null;
     }
   }
 
