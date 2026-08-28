@@ -26,14 +26,24 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const runningRef = useRef(false);
+  const tickingRef = useRef(false);
   const timeoutRef = useRef(null);
   const startedAtRef = useRef(0);
   const currentIntervalRef = useRef(POLL_INTERVAL_MS);
   const elapsedTimerRef = useRef(null);
   const budgetTimerRef = useRef(null);
+  const onCompletedRef = useRef(onCompleted);
+  const onFailedRef = useRef(onFailed);
+
+  // Keep callbacks fresh without restarting the poll loop.
+  useEffect(() => {
+    onCompletedRef.current = onCompleted;
+    onFailedRef.current = onFailed;
+  });
 
   const stop = useCallback(() => {
     runningRef.current = false;
+    tickingRef.current = false;
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
     if (budgetTimerRef.current) clearTimeout(budgetTimerRef.current);
@@ -44,6 +54,7 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
 
   const reset = useCallback(() => {
     stop();
+    tickingRef.current = false;
     setStatus('Processing');
     setResult(null);
     setError(null);
@@ -69,11 +80,12 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
       err.code = 'upstream_timeout';
       setError(err);
       stop();
-      onFailed?.(err);
+      onFailedRef.current?.(err);
     }, CLIENT_BUDGET_MS);
 
     const tick = async () => {
-      if (!runningRef.current) return;
+      if (!runningRef.current || tickingRef.current) return;
+      tickingRef.current = true;
 
       try {
         const data = await fetchStatus(activityId, endpoint);
@@ -82,7 +94,7 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
         if (data.status === 'Completed') {
           setResult(data.result);
           stop();
-          onCompleted?.(data.result);
+          onCompletedRef.current?.(data.result);
           return;
         }
 
@@ -91,7 +103,7 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
           err.code = 'upstream_error';
           setError(err);
           stop();
-          onFailed?.(err);
+          onFailedRef.current?.(err);
           return;
         }
 
@@ -102,12 +114,15 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
         );
 
         if (runningRef.current) {
-          timeoutRef.current = setTimeout(tick, currentIntervalRef.current);
+          timeoutRef.current = setTimeout(() => {
+            tickingRef.current = false;
+            tick();
+          }, currentIntervalRef.current);
         }
       } catch (err) {
         setError(err);
         stop();
-        onFailed?.(err);
+        onFailedRef.current?.(err);
       }
     };
 
@@ -117,7 +132,7 @@ export function usePollStatus({ activityId, endpoint, onCompleted, onFailed }) {
     return () => {
       stop();
     };
-  }, [activityId, endpoint, onCompleted, onFailed, reset, stop]);
+  }, [activityId, endpoint, reset, stop]);
 
   return { status, result, error, elapsedSeconds, stop, reset };
 }
