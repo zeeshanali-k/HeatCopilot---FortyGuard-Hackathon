@@ -792,6 +792,12 @@ async function computePrioritizedZones(aoi, date, stageResults = {}) {
     tcmResult = stageResults.heatmap;
   } else {
     tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
+    if (!tcmCached) {
+      const err = new Error('Heatmap result not available for this AOI. Run the analysis flow first.');
+      err.code = 'cache_miss';
+      err.status = 404;
+      throw err;
+    }
     tcmResult = tcmCached.data;
   }
   const heatTiles = normalizeHotspotTiles(tcmResult);

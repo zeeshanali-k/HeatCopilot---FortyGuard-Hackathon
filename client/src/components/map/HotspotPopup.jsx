@@ -43,6 +43,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const setPrioritizeStatus = useStore((s) => s.setPrioritizeStatus);
   const setPrioritizeError = useStore((s) => s.setPrioritizeError);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
+  const setPrioritizeAoi = useStore((s) => s.setPrioritizeAoi);
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
   const saveToHistory = useStore((s) => s.saveToHistory);
@@ -121,6 +122,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
             .sort((a, b) => a.d - b.dist)[0].zone
           : null;
         setPrioritizeZones(ranked);
+        setPrioritizeAoi(aoi);
         setShowResultsPanel(true);
         setSelectedZone(nearest);
         setPrioritizeStatus('completed');
@@ -161,7 +163,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         popupRef.current = null;
       }
     };
-  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setSelectedZone, setShowResultsPanel, saveToHistory, aoiMode]);
+  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setPrioritizeAoi, setSelectedZone, setShowResultsPanel, saveToHistory, aoiMode]);
 
   return null;
 }

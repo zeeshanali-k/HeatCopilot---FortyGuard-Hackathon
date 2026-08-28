@@ -33,6 +33,7 @@ export default function ResultsPanel() {
   const allocateStatus = useStore((s) => s.allocateStatus);
   const allocateError = useStore((s) => s.allocateError);
   const allocation = useStore((s) => s.allocation);
+  const prioritizeAoi = useStore((s) => s.prioritizeAoi);
 
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
@@ -54,11 +55,12 @@ export default function ResultsPanel() {
 
   async function handleOptimize() {
     const budgetUsd = Number(budgetInput.replace(/[^0-9.]/g, ''));
-    if (!aoi || !Number.isFinite(budgetUsd) || budgetUsd <= 0) return;
+    const targetAoi = prioritizeAoi || aoi;
+    if (!targetAoi || !Number.isFinite(budgetUsd) || budgetUsd <= 0) return;
     setAllocateStatus('processing');
     setAllocateError(null);
     try {
-      const data = await allocateBudget(aoi, { date: analysisDate, budgetUsd, costOverrides });
+      const data = await allocateBudget(targetAoi, { date: analysisDate, budgetUsd, costOverrides });
       // Keep the ranked list in sync with the optimization so the panel shows
       // exactly the zones the budget was allocated against.
       const rankedZones = [...(data.funded || []), ...(data.unfunded || [])];
