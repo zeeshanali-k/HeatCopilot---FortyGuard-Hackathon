@@ -35,17 +35,19 @@ export default function ResultsPanel() {
   const allocation = useStore((s) => s.allocation);
   const prioritizeAoi = useStore((s) => s.prioritizeAoi);
 
+  const activeTab = useStore((s) => s.resultsActiveTab);
+
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setAllocateStatus = useStore((s) => s.setAllocateStatus);
   const setAllocateError = useStore((s) => s.setAllocateError);
   const setAllocation = useStore((s) => s.setAllocation);
+  const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
   const costOverrides = useStore((s) => s.costOverrides);
   const analysisDate = useStore((s) => s.analysisDate);
 
   const [budgetInput, setBudgetInput] = useState('');
-  const [activeTab, setActiveTab] = useState('zones');
 
   if (!show) return null;
 
@@ -69,7 +71,7 @@ export default function ResultsPanel() {
       }
       setAllocation(data);
       setAllocateStatus('completed');
-      setActiveTab('zones');
+      setResultsActiveTab('zones');
     } catch (err) {
       setAllocateError({ code: err.code, message: err.message });
       setAllocateStatus('error');
@@ -113,7 +115,7 @@ export default function ResultsPanel() {
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => setResultsActiveTab(tab.key)}
               style={{
                 fontSize: 12,
                 fontWeight: 600,

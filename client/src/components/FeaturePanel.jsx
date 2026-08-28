@@ -4,6 +4,7 @@
  * Left floating panel that drives the analysis pipeline. Provides the primary
  * "Find Hotspots" action and the secondary "Heat Duration" action, including
  * a configurable temperature threshold and a layer visibility toggle. Also
+ * exposes a "View History" button to open saved analyses at any time, and
  * displays progress, errors, and summary counts.
  */
 
@@ -53,6 +54,8 @@ export default function FeaturePanel() {
   const setDurationTiles = useStore((s) => s.setDurationTiles);
   const setDurationThresholdC = useStore((s) => s.setDurationThresholdC);
   const setShowDurationLayer = useStore((s) => s.setShowDurationLayer);
+  const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
 
   const [hotspotActivityId, setHotspotActivityId] = useState(null);
   const [durationActivityId, setDurationActivityId] = useState(null);
@@ -133,6 +136,11 @@ export default function FeaturePanel() {
       setDurationError(err);
       setDurationStatus('error');
     }
+  }
+
+  function handleOpenHistory() {
+    setResultsActiveTab('history');
+    setShowResultsPanel(true);
   }
 
   const activeStepIndex = steps.findIndex((s) => s.key === analysisStatus);
@@ -405,6 +413,48 @@ export default function FeaturePanel() {
             Show duration layer
           </label>
         )}
+      </div>
+
+      <div style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            color: 'var(--text-l)',
+            marginBottom: 10,
+          }}
+        >
+          History
+        </div>
+        <button
+          onClick={handleOpenHistory}
+          style={{
+            width: '100%',
+            height: 40,
+            borderRadius: 10,
+            border: '1px solid var(--glass-border)',
+            background: 'var(--accent-bg)',
+            color: 'var(--text-h)',
+            fontWeight: 600,
+            fontSize: 14,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-bg-strong)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--accent-bg)')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          View History
+        </button>
       </div>
 
       {analysisStatus !== 'idle' && (
