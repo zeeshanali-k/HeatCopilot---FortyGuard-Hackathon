@@ -9,7 +9,7 @@
 import { useEffect, useRef } from 'react';
 import maplibregl from 'maplibre-gl';
 import { useStore } from '../../state';
-import { prioritizeZones } from '../../api';
+import { usePrioritizePipeline } from '../../hooks/usePrioritizePipeline';
 import { formatHour } from './mapUtils';
 
 const DEMO_DATE = '2026-07-15';
@@ -43,47 +43,65 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const setPrioritizeStatus = useStore((s) => s.setPrioritizeStatus);
   const setPrioritizeError = useStore((s) => s.setPrioritizeError);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
+  const setPrioritizeAoi = useStore((s) => s.setPrioritizeAoi);
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
   const saveToHistory = useStore((s) => s.saveToHistory);
   const aoiMode = useStore((s) => s.aoiMode);
   const hotspots = useStore((s) => s.hotspots);
   const durationZones = useStore((s) => s.durationZones);
 
+  // Stash values that change often in refs so the popup DOM isn't recreated
+  // every time the surrounding store updates.
+  const selectedHotspotRef = useRef(selectedHotspot);
+  const mapRef = useRef(map);
+  const hotspotsRef = useRef(hotspots);
+  const durationZonesRef = useRef(durationZones);
+
+  const { run } = usePrioritizePipeline();
+
+  // Keep the latest run function in a ref so the effect doesn't re-run when
+  // the pipeline callbacks change identity.
+  const runRef = useRef(run);
+
   useEffect(() => {
-    if (!map) return;
+    selectedHotspotRef.current = selectedHotspot;
+    mapRef.current = map;
+    hotspotsRef.current = hotspots;
+    durationZonesRef.current = durationZones;
+    runRef.current = run;
+  });
+
+  useEffect(() => {
+    if (!map || !selectedHotspot) {
+      if (popupRef.current) {
+        popupRef.current.remove();
+        popupRef.current = null;
+      }
+      return;
+    }
 
     if (popupRef.current) {
       popupRef.current.remove();
       popupRef.current = null;
     }
 
-    if (!selectedHotspot) return;
-
+    const hotspot = selectedHotspot;
     const thresholdLabel = `${thresholdC}°C`;
     const popupContent = document.createElement('div');
     popupContent.className = 'hotspot-popup';
     popupContent.innerHTML = `
-      <div style="font-weight:600;font-size:15px;margin-bottom:8px;color:var(--text-h);">${selectedHotspot.label}</div>
+      <div style="font-weight:600;font-size:15px;margin-bottom:8px;color:var(--text-h);">${hotspot.label}</div>
       <div style="display:grid;grid-template-columns:1fr auto;gap:8px 16px;font-size:13px;color:var(--text-m);">
-        <div>Mean temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${selectedHotspot.tempMean}°C</div>
-        <div>Max temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${selectedHotspot.tempMax}°C</div>
-        <div>Peak hour</div><div style="text-align:right;color:var(--text-h);">${formatHour(selectedHotspot.peakHour)}</div>
-        <div>Danger duration (hrs)</div><div style="text-align:right;color:var(--text-h);">${selectedHotspot.durationHrs ?? '--'}</div>
+        <div>Mean temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${hotspot.tempMean}°C</div>
+        <div>Max temp</div><div style="text-align:right;color:var(--text-h);font-weight:600;">${hotspot.tempMax}°C</div>
+        <div>Peak hour</div><div style="text-align:right;color:var(--text-h);">${formatHour(hotspot.peakHour)}</div>
+        <div>Danger duration (hrs)</div><div style="text-align:right;color:var(--text-h);">${hotspot.durationHrs ?? '--'}</div>
       </div>
       <button class="popup-action-btn" style="margin-top:12px;width:100%;">Analyze this zone</button>
       <div style="margin-top:6px;font-size:11px;color:var(--text-l);text-align:center;" title="FortyGuard heatmap, ${DEMO_DATE} ${DEMO_HOUR}, 100m, threshold ${thresholdLabel}">Source: FortyGuard heatmap · threshold ${thresholdLabel}</div>
     `;
-
-    function findNearestZone(zones, lon, lat) {
-      if (!zones || zones.length === 0) return null;
-      return zones
-        .map((z) => ({
-          zone: z,
-          dist: Math.hypot(z.center.lon - lon, z.center.lat - lat),
-        }))
-        .sort((a, b) => a.dist - b.dist)[0].zone;
-    }
 
     const btn = popupContent.querySelector('.popup-action-btn');
     btn.addEventListener('click', async () => {
@@ -93,29 +111,38 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
       setPrioritizeError(null);
 
       try {
-        const aoi = bufferPolygon(selectedHotspot.lon, selectedHotspot.lat);
-        const data = await prioritizeZones(aoi, { date: DEMO_DATE });
-        const ranked = data.zones || [];
-        const nearest = findNearestZone(ranked, selectedHotspot.lon, selectedHotspot.lat);
+        const aoi = bufferPolygon(hotspot.lon, hotspot.lat);
+        const { zones } = await runRef.current(aoi, DEMO_DATE);
+        const ranked = zones || [];
+        const nearest = ranked.length > 0
+          ? ranked
+            .map((z) => ({
+              zone: z,
+              dist: Math.hypot(z.center.lon - hotspot.lon, z.center.lat - hotspot.lat),
+            }))
+            .sort((a, b) => a.d - b.dist)[0].zone
+          : null;
         setPrioritizeZones(ranked);
+        setPrioritizeAoi(aoi);
         setShowResultsPanel(true);
+        setResultsActiveTab('zones');
         setSelectedZone(nearest);
         setPrioritizeStatus('completed');
         saveToHistory({
           aoi,
           aoiMode,
           date: DEMO_DATE,
-          hotspots,
-          duration: durationZones,
+          hotspots: hotspotsRef.current,
+          duration: durationZonesRef.current,
           zones: ranked,
-          fromCache: data.meta?.fromCache,
+          fromCache: false,
         });
-        if (nearest && map) {
-          map.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
+        if (nearest && mapRef.current) {
+          mapRef.current.flyTo({ center: [nearest.center.lon, nearest.center.lat], zoom: 16, essential: true });
         }
         popupRef.current?.remove();
       } catch (err) {
-        console.error(err);
+        console.error('Analyze zone failed:', err);
         setPrioritizeError(err);
         setPrioritizeStatus('error');
         btn.disabled = false;
@@ -124,7 +151,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
     });
 
     popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: '300px' })
-      .setLngLat([selectedHotspot.lon, selectedHotspot.lat])
+      .setLngLat([hotspot.lon, hotspot.lat])
       .setDOMContent(popupContent)
       .addTo(map);
 
@@ -138,21 +165,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         popupRef.current = null;
       }
     };
-  }, [
-    map,
-    selectedHotspot,
-    onClose,
-    thresholdC,
-    setPrioritizeStatus,
-    setPrioritizeError,
-    setPrioritizeZones,
-    setSelectedZone,
-    setShowResultsPanel,
-    saveToHistory,
-    aoiMode,
-    hotspots,
-    durationZones,
-  ]);
+  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setPrioritizeAoi, setSelectedZone, setShowResultsPanel, setResultsActiveTab, saveToHistory, aoiMode]);
 
   return null;
 }

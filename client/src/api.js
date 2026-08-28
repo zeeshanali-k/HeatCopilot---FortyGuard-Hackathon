@@ -9,12 +9,13 @@
 // deployed frontend (e.g. https://your-backend.vercel.app).
 const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:3001').replace(/\/+$/, '');
 
-async function post(path, body) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: 'POST',
+async function request(method, path, body) {
+  const opts = {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  };
+  if (body != null) opts.body = JSON.stringify(body);
+  const res = await fetch(`${API_BASE}${path}`, opts);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     const err = new Error(data.error || `Request failed: ${res.status}`);
@@ -24,7 +25,11 @@ async function post(path, body) {
   return data;
 }
 
-export async function findHotspots(aoi, { date, hour } = {}) {
+function post(path, body) {
+  return request('POST', path, body);
+}
+
+export async function submitFindHotspots(aoi, { date, hour } = {}) {
   return post('/api/hotspots', {
     aoi,
     date: date || '2026-07-15',
@@ -32,7 +37,7 @@ export async function findHotspots(aoi, { date, hour } = {}) {
   });
 }
 
-export async function fetchDuration(aoi, { date, thresholdC } = {}) {
+export async function submitHeatDuration(aoi, { date, thresholdC } = {}) {
   return post('/api/duration', {
     aoi,
     date: date || '2026-07-15',
@@ -40,10 +45,22 @@ export async function fetchDuration(aoi, { date, thresholdC } = {}) {
   });
 }
 
-export async function prioritizeZones(aoi, { date } = {}) {
+export async function submitPrioritizeStage(aoi, { date } = {}) {
   return post('/api/prioritize', {
     aoi,
     date: date || '2026-07-15',
+  });
+}
+
+export async function submitGenericTask(endpoint, payload, options = {}) {
+  return post('/api/tasks', { endpoint, payload, options });
+}
+
+export async function scorePrioritizedZones(aoi, date, stageResults = {}) {
+  return post('/api/prioritize/score', {
+    aoi,
+    date: date || '2026-07-15',
+    stageResults,
   });
 }
 

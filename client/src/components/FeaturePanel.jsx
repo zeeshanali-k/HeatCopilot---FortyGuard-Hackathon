@@ -4,12 +4,14 @@
  * Left floating panel that drives the analysis pipeline. Provides the primary
  * "Find Hotspots" action and the secondary "Heat Duration" action, including
  * a configurable temperature threshold and a layer visibility toggle. Also
+ * exposes a "View History" button to open saved analyses at any time, and
  * displays progress, errors, and summary counts.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state';
-import { findHotspots, fetchDuration } from '../api';
+import { submitFindHotspots, submitHeatDuration } from '../api';
+import { usePollStatus } from '../hooks/usePollStatus';
 
 const DEMO_DATE = '2026-07-15';
 const DEMO_HOUR = '14:00';
@@ -52,20 +54,51 @@ export default function FeaturePanel() {
   const setDurationTiles = useStore((s) => s.setDurationTiles);
   const setDurationThresholdC = useStore((s) => s.setDurationThresholdC);
   const setShowDurationLayer = useStore((s) => s.setShowDurationLayer);
+  const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
+  const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
 
-  const timerRef = useRef(null);
+  const [hotspotActivityId, setHotspotActivityId] = useState(null);
+  const [durationActivityId, setDurationActivityId] = useState(null);
+
   const startRef = useRef(0);
+
+  const hotspotPoll = usePollStatus({
+    activityId: hotspotActivityId,
+    endpoint: 'heatmap',
+    onCompleted: (result) => {
+      setHotspots(result.markers);
+      setHeatTiles(result.heatTiles);
+      setAnalysisStatus('completed');
+    },
+    onFailed: (err) => {
+      setAnalysisError(err);
+      setAnalysisStatus('error');
+    },
+  });
+
+  usePollStatus({
+    activityId: durationActivityId,
+    endpoint: 'duration',
+    onCompleted: (result) => {
+      setDurationZones(result.zones);
+      setDurationTiles(result.heatTiles);
+      setShowDurationLayer(true);
+      setDurationStatus('completed');
+    },
+    onFailed: (err) => {
+      setDurationError(err);
+      setDurationStatus('error');
+    },
+  });
 
   useEffect(() => {
     if (analysisStatus === 'submitted' || analysisStatus === 'processing') {
       startRef.current = Date.now();
-      timerRef.current = setInterval(() => {
+      const timer = setInterval(() => {
         setAnalysisElapsed(Math.round((Date.now() - startRef.current) / 1000));
       }, 1000);
-    } else {
-      clearInterval(timerRef.current);
+      return () => clearInterval(timer);
     }
-    return () => clearInterval(timerRef.current);
   }, [analysisStatus, setAnalysisElapsed]);
 
   async function handleFindHotspots() {
@@ -74,13 +107,12 @@ export default function FeaturePanel() {
     setAnalysisError(null);
     setAnalysisElapsed(0);
     setSelectedHotspot(null);
+    setHotspotActivityId(null);
 
     try {
+      const { activityId } = await submitFindHotspots(aoi, { date: DEMO_DATE, hour: DEMO_HOUR });
       setAnalysisStatus('processing');
-      const data = await findHotspots(aoi, { date: DEMO_DATE, hour: DEMO_HOUR });
-      setHotspots(data.markers);
-      setHeatTiles(data.heatTiles);
-      setAnalysisStatus('completed');
+      setHotspotActivityId(activityId);
     } catch (err) {
       console.error(err);
       setAnalysisError(err);
@@ -93,19 +125,22 @@ export default function FeaturePanel() {
     setDurationStatus('submitted');
     setDurationError(null);
     setSelectedHotspot(null);
+    setDurationActivityId(null);
 
     try {
+      const { activityId } = await submitHeatDuration(aoi, { date: DEMO_DATE, thresholdC: durationThresholdC });
       setDurationStatus('processing');
-      const data = await fetchDuration(aoi, { date: DEMO_DATE, thresholdC: durationThresholdC });
-      setDurationZones(data.zones);
-      setDurationTiles(data.heatTiles);
-      setShowDurationLayer(true);
-      setDurationStatus('completed');
+      setDurationActivityId(activityId);
     } catch (err) {
       console.error(err);
       setDurationError(err);
       setDurationStatus('error');
     }
+  }
+
+  function handleOpenHistory() {
+    setResultsActiveTab('history');
+    setShowResultsPanel(true);
   }
 
   const activeStepIndex = steps.findIndex((s) => s.key === analysisStatus);
@@ -380,6 +415,48 @@ export default function FeaturePanel() {
         )}
       </div>
 
+      <div style={{ marginTop: 20 }}>
+        <div
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            letterSpacing: '0.08em',
+            color: 'var(--text-l)',
+            marginBottom: 10,
+          }}
+        >
+          History
+        </div>
+        <button
+          onClick={handleOpenHistory}
+          style={{
+            width: '100%',
+            height: 40,
+            borderRadius: 10,
+            border: '1px solid var(--glass-border)',
+            background: 'var(--accent-bg)',
+            color: 'var(--text-h)',
+            fontWeight: 600,
+            fontSize: 14,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            transition: 'background 0.15s',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--accent-bg-strong)')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = 'var(--accent-bg)')}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          View History
+        </button>
+      </div>
+
       {analysisStatus !== 'idle' && (
         <div style={{ marginTop: 20 }}>
           <div
@@ -411,6 +488,11 @@ export default function FeaturePanel() {
                   />
                   <div style={{ flex: 1, color: isActive || isDone ? 'var(--text-h)' : 'var(--text-l)', fontSize: 13 }}>
                     {step.label}
+                    {isActive && hotspotPoll.status && hotspotPoll.status !== 'Processing' && (
+                      <span style={{ marginLeft: 6, color: 'var(--text-l)', fontSize: 11 }}>
+                        ({hotspotPoll.status})
+                      </span>
+                    )}
                   </div>
                   {isActive && (
                     <div style={{ color: 'var(--text-l)', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>

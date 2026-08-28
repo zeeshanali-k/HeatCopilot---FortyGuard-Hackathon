@@ -14,6 +14,7 @@ Feature-wise build plans (build and track in this order):
 8. [`docs/features/08-action-plan-v2.md`](docs/features/08-action-plan-v2.md) — quantitative, truncation-proof LLM briefings
 9. [`docs/features/09-ui-motion-expanding-views.md`](docs/features/09-ui-motion-expanding-views.md) — shared motion foundation (per-feature motion merged into 01/03/07/08 + design guidelines)
 10. [`docs/features/10-cost-assumptions.md`](docs/features/10-cost-assumptions.md) — user-editable intervention costs for the budget optimizer
+11. [`docs/features/11-async-live-mode.md`](docs/features/11-async-live-mode.md) — stateless status pass-through (Vercel-safe live mode)
 
 Demo/pitch: [`docs/demo-script.md`](docs/demo-script.md).
 

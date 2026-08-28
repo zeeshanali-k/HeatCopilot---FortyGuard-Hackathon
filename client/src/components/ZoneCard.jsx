@@ -14,9 +14,18 @@ import { generateActionPlan } from '../api';
 
 const markdownComponents = {
   p: ({ children }) => <p style={{ margin: '0 0 10px 0', lineHeight: 1.6 }}>{children}</p>,
+  h1: ({ children }) => <h1 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-h)', margin: '0 0 12px 0' }}>{children}</h1>,
+  h2: ({ children }) => <h2 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-h)', margin: '16px 0 8px 0', paddingBottom: 4, borderBottom: '1px solid var(--glass-border)' }}>{children}</h2>,
+  h3: ({ children }) => <h3 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-h)', margin: '12px 0 6px 0' }}>{children}</h3>,
+  h4: ({ children }) => <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-m)', margin: '10px 0 4px 0' }}>{children}</h4>,
   ul: ({ children }) => <ul style={{ margin: '0 0 10px 0', paddingLeft: 18, lineHeight: 1.6 }}>{children}</ul>,
+  ol: ({ children }) => <ol style={{ margin: '0 0 10px 0', paddingLeft: 18, lineHeight: 1.6 }}>{children}</ol>,
   li: ({ children }) => <li style={{ marginBottom: 4 }}>{children}</li>,
   strong: ({ children }) => <strong style={{ color: 'var(--text-h)', fontWeight: 700 }}>{children}</strong>,
+  table: ({ children }) => <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 10, fontSize: 12 }}>{children}</table>,
+  thead: ({ children }) => <thead style={{ background: 'var(--accent-bg)' }}>{children}</thead>,
+  th: ({ children }) => <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-h)', fontWeight: 600 }}>{children}</th>,
+  td: ({ children }) => <td style={{ padding: '6px 8px', borderBottom: '1px solid var(--glass-border)', color: 'var(--text-m)' }}>{children}</td>,
 };
 
 const BREAKDOWN_ORDER = [

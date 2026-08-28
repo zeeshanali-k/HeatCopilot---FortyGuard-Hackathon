@@ -8,8 +8,8 @@ dotenv.config({ path: join(__dirname, '..', '.env') });
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
-import { isDemoMode, loadOrFail } from './cache.js';
-import { submitAndPoll } from './fortyguard.js';
+import { isDemoMode, loadOrFail, writeFixture } from './cache.js';
+import { submitTask, fetchTaskStatus } from './fortyguard.js';
 import { computePriorityScore } from './scoring.js';
 import { recommendIntervention } from './interventions.js';
 import { allocateBudget } from './allocate.js';
@@ -238,40 +238,38 @@ async function bestEffortLabel(lat, lon) {
   }
 }
 
-async function fetchHeatmap(aoi, date, hour, mode, extras = {}) {
+function fetchCachedHeatmap(aoi, date, hour, mode, extras = {}) {
   const payload = { aoi, date, hour, mode, granularity: 100, ...extras };
   const cached = loadOrFail('/v1/heatmap', payload);
   if (cached) return { data: cached.data, fromCache: true, key: cached.key };
-
-  const upstream = await submitAndPoll('/v1/heatmap', payload, { mode, granularity: 100, ...extras });
-  return { data: upstream.result, fromCache: false, key: upstream.activityId };
+  return null;
 }
 
 async function fetchDurationContext(aoi, date, thresholdC) {
   const hour = '14:00';
 
   const [exceedanceRes, persistenceRes, timeOfMeasureRes] = await Promise.allSettled([
-    fetchHeatmap(aoi, date, hour, 'exceedance', { thresholdC }),
-    fetchHeatmap(aoi, date, hour, 'persistence'),
-    fetchHeatmap(aoi, date, hour, 'time_of_measure'),
+    fetchCachedHeatmap(aoi, date, hour, 'exceedance', { thresholdC }),
+    fetchCachedHeatmap(aoi, date, hour, 'persistence'),
+    fetchCachedHeatmap(aoi, date, hour, 'time_of_measure'),
   ]);
 
   const exceedanceTiles =
-    exceedanceRes.status === 'fulfilled'
+    exceedanceRes.status === 'fulfilled' && exceedanceRes.value
       ? normalizeCompanionTiles(exceedanceRes.value.data, {
           exceedHours: ['exceedance', 'exceedance_hours', 'exceedHours', 'hours_above'],
         })
       : null;
 
   const persistenceTiles =
-    persistenceRes.status === 'fulfilled'
+    persistenceRes.status === 'fulfilled' && persistenceRes.value
       ? normalizeCompanionTiles(persistenceRes.value.data, {
           longestStreakHrs: ['persistence', 'persistence_hours', 'longestStreakHrs', 'longest_streak'],
         })
       : null;
 
   const timeOfMeasureTiles =
-    timeOfMeasureRes.status === 'fulfilled'
+    timeOfMeasureRes.status === 'fulfilled' && timeOfMeasureRes.value
       ? normalizeCompanionTiles(timeOfMeasureRes.value.data, {
           peakHour: ['time_of_measure', 'peak_hour', 'peakHour', 'hour'],
         })
@@ -281,9 +279,9 @@ async function fetchDurationContext(aoi, date, thresholdC) {
     exceedanceRes.status === 'fulfilled' &&
     persistenceRes.status === 'fulfilled' &&
     timeOfMeasureRes.status === 'fulfilled' &&
-    exceedanceRes.value.fromCache &&
-    persistenceRes.value.fromCache &&
-    timeOfMeasureRes.value.fromCache;
+    exceedanceRes.value?.fromCache &&
+    persistenceRes.value?.fromCache &&
+    timeOfMeasureRes.value?.fromCache;
 
   return { exceedanceTiles, persistenceTiles, timeOfMeasureTiles, fromCache };
 }
@@ -302,6 +300,79 @@ function deriveFallbackDuration(tcmTiles, thresholdC) {
     };
   });
   return { type: 'FeatureCollection', features };
+}
+
+async function processHotspotResult(rawResult, { aoi, date, thresholdC = 38 }) {
+  const heatTiles = normalizeHotspotTiles(rawResult);
+  const markers = clusterHotspots(heatTiles);
+
+  // Try to enrich markers with duration/peak data when companion fixtures are cached.
+  try {
+    const durationCtx = await fetchDurationContext(aoi, date, thresholdC);
+    const merged = mergeTilesByCentroid([
+      heatTiles,
+      durationCtx.exceedanceTiles,
+      durationCtx.persistenceTiles,
+      durationCtx.timeOfMeasureTiles,
+    ]);
+
+    for (const m of markers) {
+      const nearest = merged.features
+        .map((f) => ({
+          f,
+          d: Math.hypot(m.lon - getCentroid(f.geometry)[0], m.lat - getCentroid(f.geometry)[1]),
+        }))
+        .sort((a, b) => a.d - b.d)[0];
+      if (nearest) {
+        m.peakHour = nearest.f.properties.peakHour ?? m.peakHour;
+        m.durationHrs = nearest.f.properties.longestStreakHrs ?? m.durationHrs;
+      }
+    }
+  } catch (err) {
+    if (err.code !== 'cache_miss') console.error('Failed to enrich hotspots with duration:', err.message);
+  }
+
+  for (const m of markers) {
+    m.label = (await bestEffortLabel(m.lat, m.lon)) || `Hotspot ${m.id}`;
+  }
+
+  return { markers, heatTiles };
+}
+
+async function processDurationResult(rawTcm, { aoi, date, thresholdC = 38 }) {
+  const heatTiles = normalizeHotspotTiles(rawTcm);
+
+  let durationCtx;
+  try {
+    durationCtx = await fetchDurationContext(aoi, date, thresholdC);
+  } catch (err) {
+    if (err.code !== 'cache_miss') throw err;
+  }
+
+  const hasCompanionData =
+    durationCtx &&
+    durationCtx.exceedanceTiles?.features?.length > 0 &&
+    durationCtx.persistenceTiles?.features?.length > 0;
+
+  let mergedTiles;
+  if (hasCompanionData) {
+    mergedTiles = mergeTilesByCentroid([
+      heatTiles,
+      durationCtx.exceedanceTiles,
+      durationCtx.persistenceTiles,
+      durationCtx.timeOfMeasureTiles,
+    ]);
+  } else {
+    mergedTiles = deriveFallbackDuration(heatTiles, thresholdC);
+  }
+
+  const zones = clusterZones(mergedTiles, { thresholdC });
+
+  for (const z of zones) {
+    z.label = (await bestEffortLabel(z.lat, z.lon)) || `Zone ${z.id}`;
+  }
+
+  return { zones, heatTiles: mergedTiles, fromCache: durationCtx?.fromCache ?? false };
 }
 
 function simpleHash(str) {
@@ -425,7 +496,20 @@ function applyGreeneryFallback(zones) {
   }
 }
 
-async function fetchGreenery(aoi, zones, date) {
+function applySegmentationResult(zones, data) {
+  if (data && typeof data.vegetation_pct === 'number') {
+    for (const z of zones) z.stats = { ...(z.stats || {}), vegetationPct: data.vegetation_pct };
+    return { source: 'satellite_segmentation' };
+  }
+  return null;
+}
+
+async function fetchGreenery(aoi, zones, date, segmentationResult) {
+  if (segmentationResult) {
+    const applied = applySegmentationResult(zones, segmentationResult);
+    if (applied) return applied;
+  }
+
   // Satellite segmentation is Premium; in fixture/demo mode we use the OSM fallback.
   // Live mode expects a single lat/lon point, so use the hottest zone's center.
   const hottest = zones.length > 0
@@ -441,35 +525,23 @@ async function fetchGreenery(aoi, zones, date) {
   try {
     const cached = loadOrFail('/v1/satellite_segmentation', payload);
     if (cached) {
-      const data = cached.data;
-      // Normalize segmentation response into per-zone vegetation %.
-      // The API contract is open; we accept either a single value or a tiles result.
-      if (data && typeof data.vegetation_pct === 'number') {
-        for (const z of zones) z.stats = { ...(z.stats || {}), vegetationPct: data.vegetation_pct };
-      }
-      return { source: 'satellite_segmentation' };
+      const applied = applySegmentationResult(zones, cached.data);
+      if (applied) return applied;
     }
   } catch (err) {
     if (err.code !== 'cache_miss') console.error('Satellite segmentation cache lookup failed:', err.message);
   }
 
-  if (isDemoMode()) {
-    applyGreeneryFallback(zones);
-    return { source: 'osm_landuse' };
-  }
+  applyGreeneryFallback(zones);
+  return { source: 'osm_landuse' };
+}
 
-  try {
-    const upstream = await submitAndPoll('/v1/satellite_segmentation', payload);
-    const data = upstream.result;
-    if (data && typeof data.vegetation_pct === 'number') {
-      for (const z of zones) z.stats = { ...(z.stats || {}), vegetationPct: data.vegetation_pct };
-    }
-    return { source: 'satellite_segmentation' };
-  } catch (err) {
-    console.error('Satellite segmentation failed, using OSM fallback:', err.message);
-    applyGreeneryFallback(zones);
-    return { source: 'osm_landuse' };
+function applyEnvParamsResult(zones, data) {
+  if (data && typeof data.wet_bulb_max === 'number') {
+    for (const z of zones) z.stats = { ...(z.stats || {}), wetBulbMax: round(data.wet_bulb_max) };
+    return true;
   }
+  return false;
 }
 
 function applyWetBulbFallback(zones) {
@@ -479,7 +551,11 @@ function applyWetBulbFallback(zones) {
   }
 }
 
-async function fetchEnvParams(aoi, zones, date) {
+async function fetchEnvParams(aoi, zones, date, envParamsResult) {
+  if (envParamsResult && applyEnvParamsResult(zones, envParamsResult)) {
+    return;
+  }
+
   // Live env_params expects a single lat/lon/temperature point.
   // Use the hottest zone as the representative location.
   const hottest = zones.length > 0
@@ -495,31 +571,12 @@ async function fetchEnvParams(aoi, zones, date) {
 
   try {
     const cached = loadOrFail('/v1/env_params', payload);
-    if (cached && cached.data && typeof cached.data.wet_bulb_max === 'number') {
-      for (const z of zones) {
-        z.stats = { ...(z.stats || {}), wetBulbMax: round(cached.data.wet_bulb_max) };
-      }
-      return;
-    }
+    if (cached && applyEnvParamsResult(zones, cached.data)) return;
   } catch (err) {
     if (err.code !== 'cache_miss') console.error('Env params cache lookup failed:', err.message);
   }
 
-  if (isDemoMode()) {
-    applyWetBulbFallback(zones);
-    return;
-  }
-
-  try {
-    const upstream = await submitAndPoll('/v1/env_params', payload);
-    const data = upstream.result;
-    if (data && typeof data.wet_bulb_max === 'number') {
-      for (const z of zones) z.stats = { ...(z.stats || {}), wetBulbMax: round(data.wet_bulb_max) };
-    }
-  } catch (err) {
-    console.error('Env params failed, using fallback:', err.message);
-    applyWetBulbFallback(zones);
-  }
+  applyWetBulbFallback(zones);
 }
 
 app.post('/api/hotspots', async (req, res, next) => {
@@ -529,74 +586,20 @@ app.post('/api/hotspots', async (req, res, next) => {
     logger.info('POST /api/hotspots request', { date, hour, featureCount: aoi?.coordinates?.[0]?.length });
 
     const payload = { aoi, date, hour, mode: 'tcm', granularity: 100 };
-    let result;
-    let fromCache = false;
-    let activityId = 'cached';
 
+    // In DEMO_MODE, if the fixture is already available, return a fixture id
+    // so the client can poll and the first status call returns Completed.
     const cached = loadOrFail('/v1/heatmap', payload);
+    const hotspotContext = { endpoint: '/v1/heatmap', payload, options: { mode: 'tcm', granularity: 100 } };
     if (cached) {
-      result = cached.data;
-      fromCache = true;
-      activityId = cached.key;
-      logger.info('Hotspots cache hit', { activityId });
-    } else {
-      logger.info('Hotspots cache miss, calling FortyGuard');
-      const upstream = await submitAndPoll('/v1/heatmap', payload, { mode: 'tcm', granularity: 100 });
-      result = upstream.result;
-      activityId = upstream.activityId;
+      logger.info('Hotspots cache hit', { activityId: cached.key });
+      return res.json({ activityId: wrapActivityId(`fixture:${cached.key}`, hotspotContext), status: 'Processing' });
     }
 
-    logger.info('Hotspots raw result summary', {
-      activityId,
-      fromCache,
-      topKeys: Object.keys(result || {}),
-      featureCount: result?.features?.length ?? result?.map_data?.features?.length ?? null,
-    });
-
-    const heatTiles = normalizeHotspotTiles(result);
-    const markers = clusterHotspots(heatTiles);
-    logger.info('Hotspots normalized', { tileCount: heatTiles.features.length, markerCount: markers.length });
-    if (heatTiles.features.length > 0 && markers.length === 0) {
-      const first = result?.features?.[0] ?? result?.map_data?.features?.[0];
-      logger.warn('Hotspots produced zero markers; sample feature properties', { sample: first?.properties });
-    }
-
-    // Try to enrich markers with duration/peak data when companion fixtures are cached.
-    try {
-      const thresholdC = 38;
-      const durationCtx = await fetchDurationContext(aoi, date, thresholdC);
-      const merged = mergeTilesByCentroid([
-        heatTiles,
-        durationCtx.exceedanceTiles,
-        durationCtx.persistenceTiles,
-        durationCtx.timeOfMeasureTiles,
-      ]);
-
-      for (const m of markers) {
-        const nearest = merged.features
-          .map((f) => ({
-            f,
-            d: Math.hypot(m.lon - getCentroid(f.geometry)[0], m.lat - getCentroid(f.geometry)[1]),
-          }))
-          .sort((a, b) => a.d - b.d)[0];
-        if (nearest) {
-          m.peakHour = nearest.f.properties.peakHour ?? m.peakHour;
-          m.durationHrs = nearest.f.properties.longestStreakHrs ?? m.durationHrs;
-        }
-      }
-    } catch (err) {
-      if (err.code !== 'cache_miss') console.error('Failed to enrich hotspots with duration:', err.message);
-    }
-
-    for (const m of markers) {
-      m.label = (await bestEffortLabel(m.lat, m.lon)) || `Hotspot ${m.id}`;
-    }
-
-    res.json({
-      markers,
-      heatTiles,
-      meta: { activityId, fromCache, granularity: 100 },
-    });
+    const { activityId } = await submitTask('/v1/heatmap', payload, { mode: 'tcm', granularity: 100 });
+    const wrappedId = wrapActivityId(activityId, hotspotContext);
+    logger.info('Hotspots submitted', { activityId, wrappedId });
+    res.json({ activityId: wrappedId, status: 'Processing' });
   } catch (err) {
     next(err);
   }
@@ -608,57 +611,163 @@ app.post('/api/duration', async (req, res, next) => {
     validatePolygon(aoi);
 
     const tcmPayload = { aoi, date, hour: '14:00', mode: 'tcm', granularity: 100 };
-    let tcmResult;
     const tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
+    const durationContext = { endpoint: '/v1/heatmap', payload: { aoi, date, hour: '14:00', thresholdC }, options: { mode: 'tcm', granularity: 100 } };
     if (tcmCached) {
-      tcmResult = tcmCached.data;
+      logger.info('Duration cache hit', { activityId: tcmCached.key });
+      return res.json({ activityId: wrapActivityId(`fixture:${tcmCached.key}`, durationContext), status: 'Processing' });
+    }
+
+    const { activityId } = await submitTask('/v1/heatmap', tcmPayload, { mode: 'tcm', granularity: 100 });
+    const wrappedId = wrapActivityId(activityId, durationContext);
+    logger.info('Duration submitted', { activityId, wrappedId });
+    res.json({ activityId: wrappedId, status: 'Processing' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+function encodeTaskContext(context) {
+  const json = JSON.stringify(context);
+  return Buffer.from(json, 'utf8').toString('base64url');
+}
+
+function decodeTaskContext(encoded) {
+  const json = Buffer.from(encoded, 'base64url').toString('utf8');
+  return JSON.parse(json);
+}
+
+function wrapActivityId(activityId, context) {
+  const encoded = encodeTaskContext(context);
+  if (activityId.startsWith('fixture:')) {
+    // Legacy bare fixture id without context cannot be processed; include context.
+    return `${activityId}:${encoded}`;
+  }
+  return `live:${activityId}:${encoded}`;
+}
+
+function unwrapActivityId(activityId) {
+  if (activityId.startsWith('fixture:')) {
+    const rest = activityId.slice('fixture:'.length);
+    const colonIdx = rest.indexOf(':');
+    if (colonIdx === -1) {
+      // Legacy fixture id with no context: cannot process, but can pass through status.
+      return { fixture: true, key: rest, context: null };
+    }
+    const key = rest.slice(0, colonIdx);
+    const context = decodeTaskContext(rest.slice(colonIdx + 1));
+    return { fixture: true, key, context };
+  }
+  if (!activityId.startsWith('live:')) {
+    // Bare upstream id with no context: legacy or external; cannot process.
+    return { fixture: false, activityId, context: null };
+  }
+  const rest = activityId.slice('live:'.length);
+  const colonIdx = rest.indexOf(':');
+  if (colonIdx === -1) return { fixture: false, activityId: rest, context: null };
+  const upstreamId = rest.slice(0, colonIdx);
+  const context = decodeTaskContext(rest.slice(colonIdx + 1));
+  return { fixture: false, activityId: upstreamId, context };
+}
+
+app.get('/api/status/:activityId', async (req, res, next) => {
+  try {
+    const { activityId } = req.params;
+    const { endpoint } = req.query;
+    logger.info('GET /api/status request', { activityId, endpoint });
+
+    const unwrapped = unwrapActivityId(activityId);
+
+    let statusResult;
+    if (unwrapped.fixture) {
+      statusResult = await fetchTaskStatus(`fixture:${unwrapped.key}`);
     } else {
-      const upstream = await submitAndPoll('/v1/heatmap', tcmPayload, { mode: 'tcm', granularity: 100 });
-      tcmResult = upstream.result;
-    }
-    const heatTiles = normalizeHotspotTiles(tcmResult);
-
-    let durationCtx;
-    try {
-      durationCtx = await fetchDurationContext(aoi, date, thresholdC);
-    } catch (err) {
-      if (err.code !== 'cache_miss') throw err;
+      statusResult = await fetchTaskStatus(unwrapped.activityId);
     }
 
-    const hasCompanionData =
-      durationCtx &&
-      durationCtx.exceedanceTiles?.features?.length > 0 &&
-      durationCtx.persistenceTiles?.features?.length > 0;
-
-    let mergedTiles;
-    if (hasCompanionData) {
-      mergedTiles = mergeTilesByCentroid([
-        heatTiles,
-        durationCtx.exceedanceTiles,
-        durationCtx.persistenceTiles,
-        durationCtx.timeOfMeasureTiles,
-      ]);
-    } else {
-      mergedTiles = deriveFallbackDuration(heatTiles, thresholdC);
+    if (statusResult.status !== 'Completed') {
+      return res.json({ status: statusResult.status });
     }
 
-    const zones = clusterZones(mergedTiles, { thresholdC });
-
-    for (const z of zones) {
-      z.label = (await bestEffortLabel(z.lat, z.lon)) || `Zone ${z.id}`;
+    if (!endpoint) {
+      // No processing requested; just pass through the raw Completed payload.
+      return res.json({ status: 'Completed', result: statusResult.result });
     }
 
+    const ctx = unwrapped.context || {};
+
+    // Cache the raw upstream result locally when possible (local dev only; Vercel
+    // filesystem is read-only so writeFixture is already a best-effort no-op).
+    if (!unwrapped.fixture && ctx.endpoint && ctx.payload) {
+      writeFixture(ctx.endpoint, ctx.payload, statusResult.result);
+    }
+
+    if (endpoint === 'heatmap') {
+      const { aoi, date, thresholdC = 38 } = ctx.payload || {};
+      if (!aoi) {
+        const err = new Error('Missing AOI context for heatmap processing');
+        err.code = 'invalid_request';
+        err.status = 422;
+        throw err;
+      }
+      const { markers, heatTiles } = await processHotspotResult(statusResult.result, { aoi, date, thresholdC });
+      return res.json({
+        status: 'Completed',
+        result: {
+          markers,
+          heatTiles,
+          meta: { activityId, fromCache: unwrapped.fixture, granularity: 100 },
+        },
+      });
+    }
+
+    if (endpoint === 'duration') {
+      const { aoi, date, thresholdC = 38 } = ctx.payload || {};
+      if (!aoi) {
+        const err = new Error('Missing AOI context for duration processing');
+        err.code = 'invalid_request';
+        err.status = 422;
+        throw err;
+      }
+      const { zones, heatTiles, fromCache } = await processDurationResult(statusResult.result, { aoi, date, thresholdC });
+      return res.json({
+        status: 'Completed',
+        result: {
+          zones,
+          heatTiles,
+          meta: { thresholdC, fromCache: unwrapped.fixture || fromCache, zoneCount: zones.length },
+        },
+      });
+    }
+
+    // Generic endpoint: return raw result without server-side processing.
+    return res.json({ status: 'Completed', result: statusResult.result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/tasks', async (req, res, next) => {
+  try {
+    const { endpoint, payload, options = {} } = req.body;
+    if (!endpoint || !payload) {
+      const err = new Error('Request must include endpoint and payload');
+      err.code = 'invalid_request';
+      err.status = 422;
+      throw err;
+    }
+
+    const { activityId } = await submitTask(endpoint, payload, options);
     res.json({
-      zones,
-      heatTiles: mergedTiles,
-      meta: { thresholdC, fromCache: durationCtx?.fromCache ?? true, zoneCount: zones.length },
+      activityId: wrapActivityId(activityId, { endpoint, payload, options }),
+      status: 'Processing',
     });
   } catch (err) {
     next(err);
   }
 });
 
-async function computePrioritizedZones(aoi, date) {
+async function computePrioritizedZones(aoi, date, stageResults = {}) {
   const ring = aoi.coordinates[0];
   const lons = ring.map((p) => p[0]);
   const lats = ring.map((p) => p[1]);
@@ -677,16 +786,24 @@ async function computePrioritizedZones(aoi, date) {
   const hour = '14:00';
   const tcmPayload = { aoi, date, hour, mode: 'tcm', granularity: 100 };
   let tcmResult;
-  const tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
-  if (tcmCached) {
-    tcmResult = tcmCached.data;
+  let tcmCached = null;
+
+  if (stageResults.heatmap) {
+    tcmResult = stageResults.heatmap;
   } else {
-    const upstream = await submitAndPoll('/v1/heatmap', tcmPayload, { mode: 'tcm', granularity: 100 });
-    tcmResult = upstream.result;
+    tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
+    if (!tcmCached) {
+      const err = new Error('Heatmap result not available for this AOI. Run the analysis flow first.');
+      err.code = 'cache_miss';
+      err.status = 404;
+      throw err;
+    }
+    tcmResult = tcmCached.data;
   }
   const heatTiles = normalizeHotspotTiles(tcmResult);
 
   let durationCtx;
+  let durationFromCache = true;
   try {
     durationCtx = await fetchDurationContext(aoi, date, 38);
   } catch (err) {
@@ -696,6 +813,7 @@ async function computePrioritizedZones(aoi, date) {
   const hasCompanionData =
     durationCtx &&
     durationCtx.persistenceTiles?.features?.length > 0;
+  durationFromCache = durationCtx?.fromCache ?? true;
 
   const durationTiles = hasCompanionData
     ? durationCtx.persistenceTiles
@@ -714,10 +832,10 @@ async function computePrioritizedZones(aoi, date) {
   }
 
   // 5. Greenery (satellite segmentation with OSM fallback).
-  const { source: greenerySource } = await fetchGreenery(aoi, zones, date);
+  const { source: greenerySource } = await fetchGreenery(aoi, zones, date, stageResults.segmentation);
 
   // 6. Env params for wet-bulb health severity.
-  await fetchEnvParams(aoi, zones, date);
+  await fetchEnvParams(aoi, zones, date, stageResults.env_params);
 
   // 7. Score.
   zones = computePriorityScore(zones);
@@ -756,7 +874,7 @@ async function computePrioritizedZones(aoi, date) {
 
   const fromCache =
     (tcmCached?.fromCache ?? true) &&
-    (durationCtx?.fromCache ?? true) &&
+    durationFromCache &&
     !osmAssets.fromFallback;
 
   return {
@@ -770,9 +888,31 @@ app.post('/api/prioritize', async (req, res, next) => {
     const { aoi, date = new Date().toISOString().slice(0, 10) } = req.body;
     validatePolygon(aoi);
 
-    const { zones, meta } = await computePrioritizedZones(aoi, date);
+    const payload = { aoi, date, hour: '14:00', mode: 'tcm', granularity: 100 };
+    const cached = loadOrFail('/v1/heatmap', payload);
+    const prioritizeContext = { endpoint: '/v1/heatmap', payload, options: { mode: 'tcm', granularity: 100 } };
+    if (cached) {
+      logger.info('Prioritize heatmap cache hit', { activityId: cached.key });
+      return res.json({ activityId: wrapActivityId(`fixture:${cached.key}`, prioritizeContext), status: 'Processing' });
+    }
 
-    logger.info('POST /api/prioritize completed', {
+    const { activityId } = await submitTask('/v1/heatmap', payload, { mode: 'tcm', granularity: 100 });
+    const wrappedId = wrapActivityId(activityId, prioritizeContext);
+    logger.info('Prioritize heatmap submitted', { activityId, wrappedId });
+    res.json({ activityId: wrappedId, status: 'Processing' });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.post('/api/prioritize/score', async (req, res, next) => {
+  try {
+    const { aoi, date = new Date().toISOString().slice(0, 10), stageResults = {} } = req.body;
+    validatePolygon(aoi);
+
+    const { zones, meta } = await computePrioritizedZones(aoi, date, stageResults);
+
+    logger.info('POST /api/prioritize/score completed', {
       zoneCount: zones.length,
       fromCache: meta.fromCache,
       greenerySource: meta.greenerySource,

@@ -45,6 +45,13 @@ describe('generateActionPlan', () => {
     assert.ok(result.narrative.includes('92/100'));
     assert.ok(result.narrative.includes('Tree planting + bus-stop shade'));
     assert.ok(result.narrative.includes('43.1°C'));
+    assert.ok(result.narrative.includes('# Heat Mitigation Recommendation Report – Zone z_1'));
+    assert.ok(result.narrative.includes('## Heat Risk Summary'));
+    assert.ok(result.narrative.includes('## Explainable Priority Score'));
+    assert.ok(result.narrative.includes('## Recommended Action'));
+    assert.ok(result.narrative.includes('## Why This Recommendation?'));
+    assert.ok(result.narrative.includes('## Expected Impact'));
+    assert.ok(result.narrative.includes('Critical Heat Risk'));
     assert.strictEqual(result.evidencePdfUrl, null);
   });
 
@@ -117,8 +124,9 @@ describe('generateActionPlan with mocked LLM', () => {
     });
 
     assert.strictEqual(calls, 2, 'expected one initial call plus one retry');
-    assert.ok(result.narrative.includes('**MEMORANDUM: URGENT HEAT MITIGATION ACTION PLAN – ZONE z_1**'));
+    assert.ok(result.narrative.includes('# Heat Mitigation Recommendation Report – Zone z_1'));
     assert.ok(result.narrative.includes('1st of 12 zones'));
+    assert.ok(result.narrative.includes('## Cost & Budget Fit'));
     assert.strictEqual(result.evidencePdfUrl, null);
   });
 });

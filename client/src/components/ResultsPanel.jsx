@@ -3,7 +3,7 @@
  *
  * Right-hand ranked list of prioritized zones. Hidden until the first
  * prioritize analysis completes. Clicking a row flies the map to the zone and
- * opens the ZoneCard.
+ * opens the ZoneCard (without switching to the unrelated hotspot marker).
  */
 
 import { useState } from 'react';
@@ -22,21 +22,10 @@ function formatUsd(n) {
   return `$${n}`;
 }
 
-function findNearestHotspot(hotspots, lon, lat) {
-  if (!hotspots || hotspots.length === 0) return null;
-  return hotspots
-    .map((h) => ({
-      hotspot: h,
-      dist: Math.hypot(h.lon - lon, h.lat - lat),
-    }))
-    .sort((a, b) => a.dist - b.dist)[0].hotspot;
-}
-
 export default function ResultsPanel() {
   const map = useStore((s) => s.mapRef);
   const aoi = useStore((s) => s.aoi);
   const zones = useStore((s) => s.prioritizeZones);
-  const hotspots = useStore((s) => s.hotspots);
   const status = useStore((s) => s.prioritizeStatus);
   const error = useStore((s) => s.prioritizeError);
   const show = useStore((s) => s.showResultsPanel);
@@ -44,19 +33,21 @@ export default function ResultsPanel() {
   const allocateStatus = useStore((s) => s.allocateStatus);
   const allocateError = useStore((s) => s.allocateError);
   const allocation = useStore((s) => s.allocation);
+  const prioritizeAoi = useStore((s) => s.prioritizeAoi);
+
+  const activeTab = useStore((s) => s.resultsActiveTab);
 
   const setSelectedZone = useStore((s) => s.setSelectedZone);
-  const setSelectedHotspot = useStore((s) => s.setSelectedHotspot);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setAllocateStatus = useStore((s) => s.setAllocateStatus);
   const setAllocateError = useStore((s) => s.setAllocateError);
   const setAllocation = useStore((s) => s.setAllocation);
+  const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
   const costOverrides = useStore((s) => s.costOverrides);
   const analysisDate = useStore((s) => s.analysisDate);
 
   const [budgetInput, setBudgetInput] = useState('');
-  const [activeTab, setActiveTab] = useState('zones');
 
   if (!show) return null;
 
@@ -66,11 +57,12 @@ export default function ResultsPanel() {
 
   async function handleOptimize() {
     const budgetUsd = Number(budgetInput.replace(/[^0-9.]/g, ''));
-    if (!aoi || !Number.isFinite(budgetUsd) || budgetUsd <= 0) return;
+    const targetAoi = prioritizeAoi || aoi;
+    if (!targetAoi || !Number.isFinite(budgetUsd) || budgetUsd <= 0) return;
     setAllocateStatus('processing');
     setAllocateError(null);
     try {
-      const data = await allocateBudget(aoi, { date: analysisDate, budgetUsd, costOverrides });
+      const data = await allocateBudget(targetAoi, { date: analysisDate, budgetUsd, costOverrides });
       // Keep the ranked list in sync with the optimization so the panel shows
       // exactly the zones the budget was allocated against.
       const rankedZones = [...(data.funded || []), ...(data.unfunded || [])];
@@ -79,7 +71,7 @@ export default function ResultsPanel() {
       }
       setAllocation(data);
       setAllocateStatus('completed');
-      setActiveTab('zones');
+      setResultsActiveTab('zones');
     } catch (err) {
       setAllocateError({ code: err.code, message: err.message });
       setAllocateStatus('error');
@@ -88,14 +80,7 @@ export default function ResultsPanel() {
 
   function handleSelect(zone) {
     setSelectedZone(zone);
-
-    const nearest = findNearestHotspot(hotspots, zone.center.lon, zone.center.lat);
-    if (nearest) {
-      setSelectedHotspot(nearest);
-      if (map) {
-        map.flyTo({ center: [nearest.lon, nearest.lat], zoom: 15, essential: true });
-      }
-    } else if (map) {
+    if (map) {
       map.flyTo({ center: [zone.center.lon, zone.center.lat], zoom: 15, essential: true });
     }
   }
@@ -130,7 +115,7 @@ export default function ResultsPanel() {
           ].map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
+              onClick={() => setResultsActiveTab(tab.key)}
               style={{
                 fontSize: 12,
                 fontWeight: 600,

@@ -6,14 +6,17 @@
  * and deleting entries.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useStore, HISTORY_PALETTE } from '../state';
-import { prioritizeZones } from '../api';
+import { usePrioritizePipeline } from '../hooks/usePrioritizePipeline';
 import { scoreColor } from '../colors';
 
 const steps = [
   { key: 'submitted', label: 'Submitted' },
-  { key: 'processing', label: 'Processing' },
+  { key: 'heatmap', label: 'Heatmap' },
+  { key: 'environment', label: 'Environment' },
+  { key: 'segmentation', label: 'Segmentation' },
+  { key: 'scoring', label: 'Scoring' },
   { key: 'completed', label: 'Completed' },
 ];
 
@@ -53,8 +56,18 @@ export default function HistoryPanel() {
   const clearHistoryRerun = useStore((s) => s.clearHistoryRerun);
   const saveToHistory = useStore((s) => s.saveToHistory);
   const flashHistoryScores = useStore((s) => s.flashHistoryScores);
+  const setPrioritizeAoi = useStore((s) => s.setPrioritizeAoi);
 
   const [maxHintId, setMaxHintId] = useState(null);
+  const rerunEntryRef = useRef(null);
+
+  const { run: runPrioritize } = usePrioritizePipeline({
+    onStage: (stage) => {
+      const entry = rerunEntryRef.current;
+      if (!entry) return;
+      setHistoryEntryRerun(entry.id, { status: stage });
+    },
+  });
 
   function handleToggle(id) {
     const state = history.find((h) => h.id === id);
@@ -73,24 +86,27 @@ export default function HistoryPanel() {
     e.stopPropagation();
     setHistoryEntryRerun(entry.id, { status: 'submitted' });
     loadHistoryEntry(entry.id);
+    rerunEntryRef.current = entry;
 
     try {
-      setHistoryEntryRerun(entry.id, { status: 'processing' });
-      const data = await prioritizeZones(entry.aoi, { date: entry.date });
+      const { zones } = await runPrioritize(entry.aoi, entry.date);
+      setPrioritizeAoi(entry.aoi);
       await saveToHistory({
         aoi: entry.aoi,
         aoiMode: entry.aoiMode,
         date: entry.date,
         hotspots: entry.hotspots,
         duration: entry.duration,
-        zones: data.zones || [],
-        fromCache: data.meta?.fromCache,
+        zones: zones || [],
+        fromCache: false,
       });
       clearHistoryRerun(entry.id);
       flashHistoryScores(entry.id);
     } catch (err) {
       console.error(err);
       setHistoryEntryRerun(entry.id, { status: 'error', error: err });
+    } finally {
+      rerunEntryRef.current = null;
     }
   }
 
