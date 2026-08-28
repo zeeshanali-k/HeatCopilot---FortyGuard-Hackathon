@@ -31,7 +31,7 @@ function getLlmProvider() {
 }
 
 function getLlmBaseUrl() {
-  return readEnv('LLM_BASE_URL', 'https://api.openai.com/v1');
+  return readEnv('LLM_BASE_URL', 'https://api.openai.com/v1').replace(/\/+$/, '');
 }
 
 function getLlmModel() {
