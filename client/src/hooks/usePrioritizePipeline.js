@@ -126,13 +126,18 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         latitude: lat,
         longitude: lon,
         temperature: representativeTemp,
-      }).then(({ activityId }) => pollToCompletion(activityId, null, {
-        onStatus: () => {
-          setStage('environment');
-          onStage?.('environment');
-        },
-        shouldStop: () => !runningRef.current,
-      }));
+      })
+        .then(({ activityId }) => pollToCompletion(activityId, null, {
+          onStatus: () => {
+            setStage('environment');
+            onStage?.('environment');
+          },
+          shouldStop: () => !runningRef.current,
+        }))
+        .catch((err) => {
+          console.warn('env_params stage failed, continuing with fallback:', err.message);
+          return null;
+        });
 
       setStage('segmentation');
       onStage?.('segmentation');
@@ -141,13 +146,18 @@ export function usePrioritizePipeline({ onCompleted, onFailed, onStage } = {}) {
         date,
         latitude: lat,
         longitude: lon,
-      }).then(({ activityId }) => pollToCompletion(activityId, null, {
-        onStatus: () => {
-          setStage('segmentation');
-          onStage?.('segmentation');
-        },
-        shouldStop: () => !runningRef.current,
-      }));
+      })
+        .then(({ activityId }) => pollToCompletion(activityId, null, {
+          onStatus: () => {
+            setStage('segmentation');
+            onStage?.('segmentation');
+          },
+          shouldStop: () => !runningRef.current,
+        }))
+        .catch((err) => {
+          console.warn('segmentation stage failed, continuing with fallback:', err.message);
+          return null;
+        });
 
       const [envResult, segResult] = await Promise.all([envPromise, segPromise]);
 
