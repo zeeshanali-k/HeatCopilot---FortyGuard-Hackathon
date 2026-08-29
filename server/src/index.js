@@ -926,7 +926,7 @@ app.post('/api/prioritize/score', async (req, res, next) => {
 
 app.post('/api/allocate', async (req, res, next) => {
   try {
-    const { aoi, date = new Date().toISOString().slice(0, 10), budgetUsd, costOverrides } = req.body;
+    const { aoi, date = new Date().toISOString().slice(0, 10), budgetUsd, costOverrides, stageResults } = req.body;
     validatePolygon(aoi);
     if (typeof budgetUsd !== 'number' || !Number.isFinite(budgetUsd) || budgetUsd < 0) {
       const err = new Error('budgetUsd must be a non-negative number');
@@ -943,9 +943,10 @@ app.post('/api/allocate', async (req, res, next) => {
       throw err;
     }
 
-    // Reuse the prioritize pipeline server-side; allocation is pure
-    // computation on the ranked zones, no new external calls.
-    const { zones } = await computePrioritizedZones(aoi, date);
+    // Reuse the prioritize pipeline server-side. If the frontend has already
+    // run the async analysis stages, pass them in so live mode does not need
+    // to re-fetch or hit the fixture cache.
+    const { zones } = await computePrioritizedZones(aoi, date, stageResults || {});
     const effectiveCosts = mergeCosts(costOverrides);
     const result = allocateBudget(zones, budgetUsd, effectiveCosts);
 

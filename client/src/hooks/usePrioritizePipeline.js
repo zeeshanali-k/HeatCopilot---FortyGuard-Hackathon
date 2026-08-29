@@ -170,15 +170,16 @@ export function usePrioritizePipeline({ onStage } = {}) {
       // Stage 3: scoring
       setStage('scoring');
       onStageRef.current?.('scoring');
-      const { zones, meta } = await scorePrioritizedZones(aoi, date, {
+      const stageResults = {
         heatmap: heatmapResult,
         env_params: envResult,
         segmentation: segResult,
-      });
+      };
+      const { zones, meta } = await scorePrioritizedZones(aoi, date, stageResults);
 
       stop();
       setStatus('completed');
-      return { zones, meta };
+      return { zones, meta, stageResults };
     } catch (err) {
       stop();
       setError(err);

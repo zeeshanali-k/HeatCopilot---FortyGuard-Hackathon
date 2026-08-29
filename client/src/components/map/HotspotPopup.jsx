@@ -44,6 +44,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
   const setPrioritizeError = useStore((s) => s.setPrioritizeError);
   const setPrioritizeZones = useStore((s) => s.setPrioritizeZones);
   const setPrioritizeAoi = useStore((s) => s.setPrioritizeAoi);
+  const setPrioritizeStageResults = useStore((s) => s.setPrioritizeStageResults);
   const setSelectedZone = useStore((s) => s.setSelectedZone);
   const setShowResultsPanel = useStore((s) => s.setShowResultsPanel);
   const setResultsActiveTab = useStore((s) => s.setResultsActiveTab);
@@ -112,7 +113,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
 
       try {
         const aoi = bufferPolygon(hotspot.lon, hotspot.lat);
-        const { zones } = await runRef.current(aoi, DEMO_DATE);
+        const { zones, stageResults } = await runRef.current(aoi, DEMO_DATE);
         const ranked = zones || [];
         const nearest = ranked.length > 0
           ? ranked
@@ -124,6 +125,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
           : null;
         setPrioritizeZones(ranked);
         setPrioritizeAoi(aoi);
+        setPrioritizeStageResults(stageResults || null);
         setShowResultsPanel(true);
         setResultsActiveTab('zones');
         setSelectedZone(nearest);
@@ -165,7 +167,7 @@ export default function HotspotPopup({ map, selectedHotspot, onClose, thresholdC
         popupRef.current = null;
       }
     };
-  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setPrioritizeAoi, setSelectedZone, setShowResultsPanel, setResultsActiveTab, saveToHistory, aoiMode]);
+  }, [map, selectedHotspot, onClose, thresholdC, setPrioritizeStatus, setPrioritizeError, setPrioritizeZones, setPrioritizeAoi, setPrioritizeStageResults, setSelectedZone, setShowResultsPanel, setResultsActiveTab, saveToHistory, aoiMode]);
 
   return null;
 }
