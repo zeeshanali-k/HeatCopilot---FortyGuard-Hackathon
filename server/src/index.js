@@ -789,7 +789,9 @@ async function computePrioritizedZones(aoi, date, stageResults = {}) {
   let tcmCached = null;
 
   if (stageResults.heatmap) {
-    tcmResult = stageResults.heatmap;
+    // The client may send either the raw heatmap GeoJSON or the processed
+    // envelope { markers, heatTiles, meta } from the status endpoint.
+    tcmResult = stageResults.heatmap.heatTiles || stageResults.heatmap;
   } else {
     tcmCached = loadOrFail('/v1/heatmap', tcmPayload);
     if (!tcmCached) {

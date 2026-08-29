@@ -170,8 +170,10 @@ export function usePrioritizePipeline({ onStage } = {}) {
       // Stage 3: scoring
       setStage('scoring');
       onStageRef.current?.('scoring');
+      // computePrioritizedZones expects the heatmap GeoJSON, not the processed
+      // { markers, heatTiles, meta } envelope returned by the heatmap status endpoint.
       const stageResults = {
-        heatmap: heatmapResult,
+        heatmap: heatmapResult?.heatTiles || heatmapResult,
         env_params: envResult,
         segmentation: segResult,
       };

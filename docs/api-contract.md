@@ -170,7 +170,7 @@ Request:
   "aoi": { "type": "Polygon", "coordinates": [[]] },
   "date": "2026-07-15",
   "stageResults": {
-    "heatmap": { /* raw FortyGuard heatmap result */ },
+    "heatmap": { "type": "FeatureCollection", "features": [...] },
     "env_params": { "wet_bulb_max": 29.4 },
     "segmentation": { "vegetation_pct": 9 }
   }
@@ -232,7 +232,7 @@ Request:
     "shade_structures": { "costPerUnitUsd": 18000 }
   },
   "stageResults": {
-    "heatmap": { /* raw FortyGuard heatmap result from the prioritize pipeline */ },
+    "heatmap": { "type": "FeatureCollection", "features": [...] },
     "env_params": { "wet_bulb_max": 29.4 },
     "segmentation": { "vegetation_pct": 9 }
   }
