@@ -168,6 +168,7 @@ function clearAnalysisResults() {
     prioritizeError: null,
     prioritizeZones: [],
     prioritizeAoi: null,
+    prioritizeStageResults: null,
     selectedZone: null,
     showResultsPanel: false,
     resultsActiveTab: 'zones',
@@ -358,6 +359,7 @@ export const useStore = create((set, get) => ({
   prioritizeError: null,
   prioritizeZones: [],
   prioritizeAoi: null, // AOI used to produce the current ranked zones
+  prioritizeStageResults: null, // raw stage results from the last prioritize pipeline run
   selectedZone: null,
   showResultsPanel: false,
   resultsActiveTab: 'zones',
@@ -365,6 +367,7 @@ export const useStore = create((set, get) => ({
   setPrioritizeError: (prioritizeError) => set({ prioritizeError }),
   setPrioritizeZones: (prioritizeZones) => set({ prioritizeZones }),
   setPrioritizeAoi: (prioritizeAoi) => set({ prioritizeAoi }),
+  setPrioritizeStageResults: (prioritizeStageResults) => set({ prioritizeStageResults }),
   setSelectedZone: (selectedZone) => set({ selectedZone }),
   setShowResultsPanel: (showResultsPanel) => set({ showResultsPanel }),
   setResultsActiveTab: (resultsActiveTab) => set({ resultsActiveTab }),
@@ -373,6 +376,7 @@ export const useStore = create((set, get) => ({
     prioritizeError: null,
     prioritizeZones: [],
     prioritizeAoi: null,
+    prioritizeStageResults: null,
     selectedZone: null,
     showResultsPanel: false,
     resultsActiveTab: 'zones',

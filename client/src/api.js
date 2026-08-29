@@ -64,12 +64,13 @@ export async function scorePrioritizedZones(aoi, date, stageResults = {}) {
   });
 }
 
-export async function allocateBudget(aoi, { date, budgetUsd, costOverrides } = {}) {
+export async function allocateBudget(aoi, { date, budgetUsd, costOverrides, stageResults } = {}) {
   return post('/api/allocate', {
     aoi,
     date: date || '2026-07-15',
     budgetUsd,
     costOverrides,
+    stageResults,
   });
 }
 

@@ -170,7 +170,7 @@ Request:
   "aoi": { "type": "Polygon", "coordinates": [[]] },
   "date": "2026-07-15",
   "stageResults": {
-    "heatmap": { /* raw FortyGuard heatmap result */ },
+    "heatmap": { "type": "FeatureCollection", "features": [...] },
     "env_params": { "wet_bulb_max": 29.4 },
     "segmentation": { "vegetation_pct": 9 }
   }
@@ -218,7 +218,7 @@ Response `200`:
 
 ## POST /api/allocate
 
-Budget optimizer. Reuses the `/api/prioritize` pipeline server-side, then greedily funds zones in priority order until the budget is exhausted. Unit costs are rough municipal estimates (see `server/src/costs.js`) and may be overridden per intervention. No new external API calls.
+Budget optimizer. Reuses the `/api/prioritize` pipeline server-side, then greedily funds zones in priority order until the budget is exhausted. Unit costs are rough municipal estimates (see `server/src/costs.js`) and may be overridden per intervention. No new external API calls when `stageResults` is supplied.
 
 Request:
 
@@ -230,11 +230,18 @@ Request:
   "costOverrides": {
     "tree_planting": { "unitsPerZone": 200, "costPerUnitUsd": 900 },
     "shade_structures": { "costPerUnitUsd": 18000 }
+  },
+  "stageResults": {
+    "heatmap": { "type": "FeatureCollection", "features": [...] },
+    "env_params": { "wet_bulb_max": 29.4 },
+    "segmentation": { "vegetation_pct": 9 }
   }
 }
 ```
 
 `costOverrides` is optional. Each key must be a known intervention (`tree_planting`, `shade_structures`, `cool_pavement`, `school_cooling`, `green_space`); `unitsPerZone` and `costPerUnitUsd` must be non-negative numbers.
+
+`stageResults` is optional but strongly recommended in live mode. When provided, the optimizer reuses the already-fetched heatmap (and optional env/segmentation results) instead of requiring a fixture cache hit. This prevents `cache_miss` errors outside the Phoenix demo area.
 
 Response `200`:
 

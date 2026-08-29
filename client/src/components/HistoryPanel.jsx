@@ -57,6 +57,7 @@ export default function HistoryPanel() {
   const saveToHistory = useStore((s) => s.saveToHistory);
   const flashHistoryScores = useStore((s) => s.flashHistoryScores);
   const setPrioritizeAoi = useStore((s) => s.setPrioritizeAoi);
+  const setPrioritizeStageResults = useStore((s) => s.setPrioritizeStageResults);
 
   const [maxHintId, setMaxHintId] = useState(null);
   const rerunEntryRef = useRef(null);
@@ -89,8 +90,9 @@ export default function HistoryPanel() {
     rerunEntryRef.current = entry;
 
     try {
-      const { zones } = await runPrioritize(entry.aoi, entry.date);
+      const { zones, stageResults } = await runPrioritize(entry.aoi, entry.date);
       setPrioritizeAoi(entry.aoi);
+      setPrioritizeStageResults(stageResults || null);
       await saveToHistory({
         aoi: entry.aoi,
         aoiMode: entry.aoiMode,
